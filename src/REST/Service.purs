@@ -51,7 +51,7 @@ class (AsForeign a) <= HasExample a where
   example :: a
 
 -- | An example of a request or response.
-type Example = Unit -> JSON
+type Example = Unit -> Foreign
 
 -- | A type synonym for JSON strings.
 type JSON = String
@@ -76,8 +76,8 @@ jsonService :: forall req res eff.
   Service eff
 jsonService comments f =
   JsonService comments
-              (\_ -> unsafeStringify $ asForeign (example :: req))
-              (\_ -> unsafeStringify $ asForeign (example :: res))
+              (\_ -> asForeign (example :: req))
+              (\_ -> asForeign (example :: res))
               convert
   where
   convert :: JSON -> (Either ServiceError JSON -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit

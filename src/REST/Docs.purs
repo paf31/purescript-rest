@@ -84,6 +84,9 @@ instance semigroupDocument :: Semigroup Document where
 instance monoidDocument :: Monoid Document where
   mempty = Document emptyDoc
 
+-- | Pretty-print JSON with spaces and new-lines
+foreign import prettyJSON :: forall a. a -> JSON
+
 -- | Render a `Document` as a HTML string.
 documentToHTML :: forall eff. Document -> Service eff -> Markup
 documentToHTML (Document d) service = do
@@ -124,9 +127,9 @@ documentToHTML (Document d) service = do
   serviceExtra :: Service eff -> Markup
   serviceExtra (JsonService _ req res _) = do
     H.h2 $ text "Request Body"
-    H.pre $ H.code $ text $ req unit
+    H.pre $ H.code $ text $ prettyJSON $req unit
     H.h2 $ text "Response Body"
-    H.pre $ H.code $ text $ res unit
+    H.pre $ H.code $ text $ prettyJSON $ res unit
   serviceExtra _ = mempty
 
 generateTOC :: L.List Document -> Markup
