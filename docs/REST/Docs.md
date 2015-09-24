@@ -50,7 +50,7 @@ Render a `Document` as a HTML string.
 #### `Docs`
 
 ``` purescript
-newtype Docs e a
+data Docs a
 ```
 
 Documentation for a REST service.
@@ -60,16 +60,16 @@ for a specification, using `generateDocs`, or `serveDocs`.
 
 ##### Instances
 ``` purescript
-instance functorDocs :: Functor (Docs e)
-instance applyDocs :: (Apply e) => Apply (Docs e)
-instance applicativeDocs :: (Applicative e) => Applicative (Docs e)
-instance endpointDocs :: (Endpoint e) => Endpoint (Docs e)
+instance functorDocs :: Functor Docs
+instance applyDocs :: Apply Docs
+instance applicativeDocs :: Applicative Docs
+instance endpointDocs :: Endpoint Docs
 ```
 
 #### `generateDocs`
 
 ``` purescript
-generateDocs :: forall e a. (Endpoint e) => Docs e a -> e Document
+generateDocs :: forall a. Docs a -> Document
 ```
 
 Generate documentation for an `Endpoint` specification.
@@ -77,7 +77,7 @@ Generate documentation for an `Endpoint` specification.
 #### `serveDocs`
 
 ``` purescript
-serveDocs :: forall f a eff. (Functor f, Foldable f) => f (Docs Server a) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
+serveDocs :: forall f a eff. (Functor f, Foldable f) => f (Docs a) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
 ```
 
 Serve documentation for a set of `Endpoint` specifications on the specified port.

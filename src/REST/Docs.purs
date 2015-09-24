@@ -28,6 +28,7 @@ import qualified Node.Encoding    as Node
 import qualified Node.Stream      as Node
 
 import Control.Alt ((<|>))
+import Control.Apply
 import Control.Monad.Eff
 
 import qualified Text.Smolder.HTML                as H
@@ -84,11 +85,11 @@ documentToHTML :: Document -> Markup
 documentToHTML (Document d) = do
   H.h1 $ text title
   H.h2 $ text "Route Parameters"
-  bulletedList (L.mapMaybe routePartToArg d.route) arg
+  bulletedList (L.mapMaybe routePartToArg d.route) renderArg
   H.h2 $ text "Query Parameters"
-  bulletedList d.queryArgs arg
+  bulletedList d.queryArgs renderArg
   H.h2 $ text "Headers"
-  bulletedList d.headers arg
+  bulletedList d.headers renderArg
   H.h2 $ text "Example"
   H.p $ text "TODO"
   where
@@ -106,8 +107,8 @@ documentToHTML (Document d) = do
     fromRoutePart (LiteralPart s) = "/" <> s
     fromRoutePart (MatchPart (Arg a)) = "/:" <> a.key
 
-  arg :: Arg -> Markup
-  arg (Arg a) = do
+  renderArg :: Arg -> Markup
+  renderArg (Arg a) = do
     H.code $ text a.key
     text $ " - " <> a.comments
 
@@ -115,33 +116,41 @@ documentToHTML (Document d) = do
 -- |
 -- | The `Endpoint` instance for `Docs` can be used to generate documentation
 -- | for a specification, using `generateDocs`, or `serveDocs`.
-newtype Docs e a = Docs (e Document)
+data Docs a = Docs Document (Server Unit)
 
-instance functorDocs :: Functor (Docs e) where
-  map _ (Docs d) = Docs d
+instance functorDocs :: Functor Docs where
+  map _ (Docs d s) = Docs d s
 
-instance applyDocs :: (Apply e) => Apply (Docs e) where
-  apply (Docs f) (Docs a) = Docs (append <$> f <*> a)
+instance applyDocs :: Apply Docs where
+  apply (Docs d1 s1) (Docs d2 s2) = Docs (d1 <> d2) (s1 *> s2)
 
-instance applicativeDocs :: (Applicative e) => Applicative (Docs e) where
-  pure _ = Docs (pure mempty)
+instance applicativeDocs :: Applicative Docs where
+  pure _ = Docs mempty (pure unit)
 
-instance endpointDocs :: (Endpoint e) => Endpoint (Docs e) where
-  method m            = Docs $ pure                 $  Document (emptyDoc { method = Just m })
-  lit s               = Docs $ lit s                $> Document (emptyDoc { route = L.singleton (LiteralPart s) })
-  match hint comments = Docs $ match hint comments  $> Document (emptyDoc { route = L.singleton (MatchPart (Arg { key: hint, comments: comments })) })
-  query key comments  = Docs $ pure                 $  Document (emptyDoc { queryArgs = L.singleton (Arg { key: key, comments: comments }) })
-  header key comments = Docs $ pure                 $  Document (emptyDoc { headers = L.singleton (Arg { key: key, comments: comments }) })
+instance endpointDocs :: Endpoint Docs where
+  method m            = Docs (Document (emptyDoc { method = Just m }))
+                             (pure unit)
+  lit s               = Docs (Document (emptyDoc { route = L.singleton (LiteralPart s) }))
+                             (lit s)
+  match hint comments = Docs (Document (emptyDoc { route = L.singleton (MatchPart (Arg { key: hint, comments: comments })) }))
+                             (lit "_")
+  query key comments  = Docs (Document (emptyDoc { queryArgs = L.singleton (Arg { key: key, comments: comments }) }))
+                             (pure unit)
+  header key comments = Docs (Document (emptyDoc { headers = L.singleton (Arg { key: key, comments: comments }) }))
+                             (pure unit)
   optional = map Just
 
 -- | Generate documentation for an `Endpoint` specification.
-generateDocs :: forall e a. (Endpoint e) => Docs e a -> e Document
-generateDocs (Docs ed) = ed
+generateDocs :: forall a. Docs a -> Document
+generateDocs (Docs d _) = d
 
 -- | Serve documentation for a set of `Endpoint` specifications on the specified port.
-serveDocs :: forall f a eff. (Functor f, Foldable f) => f (Docs Server a) -> (Markup -> Markup) -> Int -> Eff (http :: Node.HTTP | eff) Unit -> Eff (http :: Node.HTTP | eff) Unit
-serveDocs endpoints wrap = serve (map (map toApplication <<< generateDocs) endpoints)
+serveDocs :: forall f a eff. (Functor f, Foldable f) => f (Docs a) -> (Markup -> Markup) -> Int -> Eff (http :: Node.HTTP | eff) Unit -> Eff (http :: Node.HTTP | eff) Unit
+serveDocs endpoints wrap = serve (map toServer endpoints)
   where
+  toServer :: Docs a -> Server (Application eff)
+  toServer (Docs d s) = s $> toApplication d
+
   toApplication :: Document -> Application eff
   toApplication docs _ res = do
     let outputStream = Node.responseAsStream res
