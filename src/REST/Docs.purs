@@ -105,7 +105,7 @@ documentToHTML (Document d) = do
   bulletedList xs f = H.ul (for_ xs (H.li <<< f))
 
   title :: String
-  title = maybe "" id d.method <> " /api" <> foldMap fromRoutePart d.route
+  title = maybe "" (<> " ") d.method <> foldMap fromRoutePart d.route
     where
     fromRoutePart (LiteralPart s) = "/" <> s
     fromRoutePart (MatchPart (Arg a)) = "/:" <> a.key
