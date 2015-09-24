@@ -14,8 +14,10 @@ module REST.Docs
 import Prelude
 
 import Data.Maybe
+import Data.Tuple
 import Data.Monoid
 import Data.Functor (($>))
+import Data.Function (on)
 import Data.Foldable (Foldable, foldMap, for_)
 
 import qualified Data.List as L
@@ -26,6 +28,7 @@ import REST.Server
 import qualified Node.HTTP        as Node
 import qualified Node.Encoding    as Node
 import qualified Node.Stream      as Node
+import qualified Node.URL         as Node
 
 import Control.Alt ((<|>))
 import Control.Apply
@@ -112,6 +115,30 @@ documentToHTML (Document d) = do
     H.code $ text a.key
     text $ " - " <> a.comments
 
+generateTOC :: L.List Document -> Markup
+generateTOC docs = do
+  H.h1 $ text "API Documentation"
+  H.ul $ foldMap toListItem $ L.sortBy (compare `on` fst) $ map toTuple docs
+  where
+  toTuple :: Document -> Tuple String String
+  toTuple (Document d) = Tuple (routeToText d.route) (routeToHref d.route)
+
+  toListItem :: Tuple String String -> Markup
+  toListItem (Tuple s href) =
+    H.li $ H.a ! A.href href $ text s
+
+  routeToHref :: L.List RoutePart -> String
+  routeToHref = Node.resolve "/" <<< ("/endpoint" <>) <<< foldMap fromRoutePart
+    where
+    fromRoutePart (LiteralPart s) = "/" <> s
+    fromRoutePart (MatchPart _) = "/_"
+
+  routeToText :: L.List RoutePart -> String
+  routeToText = foldMap fromRoutePart
+    where
+    fromRoutePart (LiteralPart s) = "/" <> s
+    fromRoutePart (MatchPart (Arg a)) = "/:" <> a.key
+
 -- | Documentation for a REST service.
 -- |
 -- | The `Endpoint` instance for `Docs` can be used to generate documentation
@@ -146,15 +173,20 @@ generateDocs (Docs d _) = d
 
 -- | Serve documentation for a set of `Endpoint` specifications on the specified port.
 serveDocs :: forall f a eff. (Functor f, Foldable f) => f (Docs a) -> (Markup -> Markup) -> Int -> Eff (http :: Node.HTTP | eff) Unit -> Eff (http :: Node.HTTP | eff) Unit
-serveDocs endpoints wrap = serve (map toServer endpoints)
+serveDocs endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
   where
   toServer :: Docs a -> Server (Application eff)
-  toServer (Docs d s) = s $> toApplication d
+  toServer (Docs d s) = lit "endpoint" *> s $> toApplication d
 
   toApplication :: Document -> Application eff
-  toApplication docs _ res = do
+  toApplication docs = serveHTML $ documentToHTML docs
+
+  serveHTML :: Markup -> Application eff
+  serveHTML html _ res = do
     let outputStream = Node.responseAsStream res
-        html = render (wrap (documentToHTML docs))
     Node.setHeader res "Content-Type" "text/html"
-    Node.writeString outputStream Node.UTF8 html (return unit)
+    Node.writeString outputStream Node.UTF8 (render (wrap html)) (return unit)
     Node.end outputStream (return unit)
+
+  tocEndpoint :: Server (Application eff)
+  tocEndpoint = get $> serveHTML (generateTOC (map generateDocs (L.toList endpoints)))

@@ -101,9 +101,13 @@ serve endpoints port callback = do
   respond :: Application eff
   respond req res = do
     let parsed = parseRequest req
-        mimpl  = runFirst $ foldMap (\(Server f) -> First (f parsed)) endpoints
+        mimpl  = runFirst $ foldMap (\(Server f) -> First (f parsed >>= ensureEOL)) endpoints
+
+        ensureEOL :: forall a. Tuple ParsedRequest a -> Maybe a
+        ensureEOL (Tuple { route: L.Nil } a) = return a
+        ensureEOL _ = Nothing
     case mimpl of
-      Just (Tuple { route: L.Nil } impl) -> impl req res
+      Just impl -> impl req res
       _ -> do
         Node.setStatusCode res 404
         Node.setStatusMessage res "Not found"
