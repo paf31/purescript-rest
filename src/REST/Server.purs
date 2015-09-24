@@ -2,7 +2,6 @@
 
 module REST.Server
   ( Server()
-  , Application()
   , serve
   ) where
 
@@ -23,6 +22,7 @@ import Control.Alt ((<|>))
 import Control.Monad.Eff
 
 import REST.Endpoint
+import REST.Service
 
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -89,16 +89,18 @@ instance endpointServer :: Endpoint Server where
   header k _ = Server \r -> map (Tuple r) (S.lookup k r.headers)
   optional (Server s) = Server \r -> map Just <$> s r <|> Nothing
 
--- | An implementation of a service.
-type Application eff = Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
-
 -- | Serve a set of endpoints on the specified port.
-serve :: forall f eff. (Foldable f) => f (Server (Application eff)) -> Int -> Eff (http :: Node.HTTP | eff) Unit -> Eff (http :: Node.HTTP | eff) Unit
+serve :: forall f eff.
+  (Foldable f) =>
+  f (Server (Service eff)) ->
+  Int ->
+  Eff (http :: Node.HTTP | eff) Unit ->
+  Eff (http :: Node.HTTP | eff) Unit
 serve endpoints port callback = do
   server <- Node.createServer respond
   Node.listen server port callback
   where
-  respond :: Application eff
+  respond :: Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
   respond req res = do
     let parsed = parseRequest req
         mimpl  = runFirst $ foldMap (\(Server f) -> First (f parsed >>= ensureEOL)) endpoints
@@ -107,7 +109,7 @@ serve endpoints port callback = do
         ensureEOL (Tuple { route: L.Nil } a) = return a
         ensureEOL _ = Nothing
     case mimpl of
-      Just impl -> impl req res
+      Just impl -> runService impl req res
       _ -> do
         Node.setStatusCode res 404
         Node.setStatusMessage res "Not found"

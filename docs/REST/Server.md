@@ -21,18 +21,10 @@ instance applicativeServer :: Applicative Server
 instance endpointServer :: Endpoint Server
 ```
 
-#### `Application`
-
-``` purescript
-type Application eff = Request -> Response -> Eff (http :: HTTP | eff) Unit
-```
-
-An implementation of a service.
-
 #### `serve`
 
 ``` purescript
-serve :: forall f eff. (Foldable f) => f (Server (Application eff)) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
+serve :: forall f eff. (Foldable f) => f (Server (Service eff)) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
 ```
 
 Serve a set of endpoints on the specified port.

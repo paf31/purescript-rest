@@ -2,6 +2,11 @@ module Test.Main where
 
 import Prelude
 
+import Data.Either
+import Data.Functor (($>))
+import Data.Foreign
+import Data.Foreign.Class
+
 import Control.Apply
 import Control.Monad.Eff.Console
 
@@ -11,6 +16,7 @@ import qualified Node.Stream      as Node
 
 import REST.Endpoint
 import REST.Server
+import REST.Service
 import REST.Docs
 
 import qualified Text.Smolder.HTML                as H
@@ -18,16 +24,24 @@ import qualified Text.Smolder.HTML.Attributes     as A
 import Text.Smolder.Markup
 import Text.Smolder.Renderer.String (render)
 
-echo :: forall eff. String -> Application eff
-echo text _ res = do
-  let outputStream = Node.responseAsStream res
-  Node.setHeader res "Content-Type" "text/plain"
-  Node.writeString outputStream Node.UTF8 text (return unit)
-  Node.end outputStream (return unit)
+data Echo = Echo String
 
-endpoints :: forall e eff. (Endpoint e) => Array (e (Application eff))
+instance echoIsForeign :: IsForeign Echo where
+  read f = Echo <$> readProp "text" f
+
+instance echoAsForeign :: AsForeign Echo where
+  asForeign (Echo text) = toForeign { text: text }
+
+instance echoHasExample :: HasExample Echo where
+  example = Echo "Hello, World!"
+
+echo :: forall eff. Service eff
+echo = jsonService "This service echoes the route argument in the response body."
+                   \(Echo text) k -> k (Right (Echo text))
+
+endpoints :: forall e eff. (Endpoint e) => Array (e (Service eff))
 endpoints =
-  [ echo <$> (get *> lit "echo" *> match "text" "The string to echo")
+  [ post *> lit "echo" $> echo
   ]
 
 template :: Markup -> Markup
