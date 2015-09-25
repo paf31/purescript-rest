@@ -8,9 +8,13 @@ module REST.Service
   , example
   , ServiceError(..)
   , Service(..)
+  , ServiceType(..)
+  , ServiceImpl()
   , JSON()
   , jsonService
+  , htmlService
   , staticHTML
+  , anyService
   , runService
   ) where
 
@@ -59,36 +63,70 @@ type JSON = String
 -- | An error - status code and message.
 data ServiceError = ServiceError Int String
 
+-- | A generic service.
+data Service f eff = Service Comments ServiceType (f (ServiceImpl eff))
+
 -- | Enumerates different types of service.
 -- |
 -- | It is useful to differentiate these for documentation purposes.
-data Service eff
-  = JsonService Comments Example Example (JSON -> (Either ServiceError JSON -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit)
-  | HtmlService Comments ((Markup -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit)
-  | AnyService  Comments (Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit)
+data ServiceType
+  = JsonService Example Example
+  | HtmlService
+  | AnyService
+
+-- | An implementation of a service
+type ServiceImpl eff = Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
 
 -- | Create a `Service` which reads a JSON structure from the request body, and writes a JSON structure
 -- | to the response body.
-jsonService :: forall req res eff.
-  (IsForeign req, AsForeign res, HasExample req, HasExample res) =>
+jsonService :: forall f eff req res.
+  (Functor f, HasExample req, HasExample res) =>
   Comments ->
-  (req -> (Either ServiceError res -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit) ->
-  Service eff
-jsonService comments f =
-  JsonService comments
-              (\_ -> asForeign (example :: req))
-              (\_ -> asForeign (example :: res))
-              convert
+  (f (req -> (Either ServiceError res -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit)) ->
+  Service f eff
+jsonService comments fimpl =
+  Service comments
+          (JsonService (\_ -> asForeign (example :: req))
+                       (\_ -> asForeign (example :: res)))
+          (map toImpl fimpl)
   where
-  convert :: JSON -> (Either ServiceError JSON -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit
-  convert fReq k =
-    case readJSON fReq of
-      Right req -> f req (k <<< map (unsafeStringify <<< asForeign))
-      Left err -> k $ Left $ ServiceError 400 ("Bad request: " <> show err)
+  toImpl :: _ -> ServiceImpl eff
+  toImpl impl req res = do
+    let requestStream = Node.requestAsStream req
+    Node.setEncoding requestStream Node.UTF8
+    bodyRef <- unsafeRunRef $ newRef ""
+    Node.onData requestStream \s -> do
+      unsafeRunRef $ modifyRef bodyRef (<> s)
+    Node.onError requestStream do
+      sendResponse res 500 "text/plain" "Internal server error"
+    Node.onEnd requestStream do
+      body <- unsafeRunRef $ readRef bodyRef
+      case readJSON body of
+        Right req -> impl req respond
+        Left err -> sendResponse res 400 "text/plain" ("Bad request: " <> show err)
+    where
+    respond :: Either ServiceError res -> Eff (http :: Node.HTTP | eff) Unit
+    respond (Left (ServiceError statusCode message)) = sendResponse res statusCode "text/plain" message
+    respond (Right response) = sendResponse res 200 "application/json" $ unsafeStringify $ asForeign response
+
+-- | Create a `Service` which renders HTML content.
+htmlService :: forall f eff.
+  (Functor f) =>
+  Comments ->
+  (f ((Markup -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit)) ->
+  Service f eff
+htmlService comments fimpl = Service comments HtmlService (map toImpl fimpl)
+  where
+  toImpl :: _ -> ServiceImpl eff
+  toImpl impl _ res = impl (sendResponse res 200 "text/html" <<< render)
 
 -- | Serve static HTML in the response.
-staticHTML :: forall eff. Comments -> Markup -> Service eff
-staticHTML comments m = HtmlService comments ($ m)
+staticHTML :: forall f eff. (Functor f) => Comments -> f Markup -> Service f eff
+staticHTML comments m = htmlService comments (map (#) m)
+
+-- | Create a service from a low-level request/response handler.
+anyService :: forall f eff. Comments -> f (ServiceImpl eff) -> Service f eff
+anyService comments = Service comments AnyService
 
 sendResponse :: forall eff. Node.Response -> Int -> String -> String -> Eff (http :: Node.HTTP | eff) Unit
 sendResponse res code contentType message = do
@@ -99,21 +137,5 @@ sendResponse res code contentType message = do
   Node.end responseStream (return unit)
 
 -- | Run a `Service`.
-runService :: forall eff. Service eff -> Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
-runService (JsonService _ _ _ f) req res = do
-  let requestStream = Node.requestAsStream req
-  Node.setEncoding requestStream Node.UTF8
-  bodyRef <- unsafeRunRef $ newRef ""
-  Node.onData requestStream \s -> do
-    unsafeRunRef $ modifyRef bodyRef (<> s)
-  Node.onError requestStream do
-    sendResponse res 500 "text/plain" "Internal server error"
-  Node.onEnd requestStream do
-    body <- unsafeRunRef $ readRef bodyRef
-    f body respond
-  where
-  respond :: Either ServiceError JSON -> Eff (http :: Node.HTTP | eff) Unit
-  respond (Left (ServiceError statusCode message)) = sendResponse res statusCode "text/plain" message
-  respond (Right json) = sendResponse res 200 "application/json" json
-runService (HtmlService _ k) req res = k \markup -> sendResponse res 200 "text/html" (render markup)
-runService (AnyService _ f) req res = f req res
+runService :: forall f eff. Service f eff -> f (ServiceImpl eff)
+runService (Service _ _ fimpl) = fimpl

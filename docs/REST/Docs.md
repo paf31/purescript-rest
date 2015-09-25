@@ -39,10 +39,10 @@ newtype Arg
 
 An `Arg` represents an argument matched by a query argument or header.
 
-#### `documentToHTML`
+#### `documentToMarkup`
 
 ``` purescript
-documentToHTML :: forall eff. Document -> Service eff -> Markup
+documentToMarkup :: forall eff. Service Docs eff -> Markup
 ```
 
 Render a `Document` as a HTML string.
@@ -69,7 +69,7 @@ instance endpointDocs :: Endpoint Docs
 #### `generateDocs`
 
 ``` purescript
-generateDocs :: forall a. Docs a -> Document
+generateDocs :: forall eff. Service Docs eff -> Document
 ```
 
 Generate documentation for an `Endpoint` specification.
@@ -77,7 +77,7 @@ Generate documentation for an `Endpoint` specification.
 #### `serveDocs`
 
 ``` purescript
-serveDocs :: forall f a eff any. (Functor f, Foldable f) => f (Docs (Service any)) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
+serveDocs :: forall f a eff any. (Functor f, Foldable f) => f (Service Docs any) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
 ```
 
 Serve documentation for a set of `Endpoint` specifications on the specified port.

@@ -35,14 +35,12 @@ instance echoAsForeign :: AsForeign Echo where
 instance echoHasExample :: HasExample Echo where
   example = Echo "Hello, World!"
 
-echo :: forall eff. Service eff
-echo = jsonService "This service echoes the route argument in the response body."
-                   \(Echo text) k -> k (Right (Echo text))
+echo :: forall e eff. (Endpoint e) => Service e eff
+echo = jsonService "This service echoes the route argument in the response body." $
+         post *> lit "echo" $> \(Echo text) k -> k (Right (Echo text))
 
-endpoints :: forall e eff. (Endpoint e) => Array (e (Service eff))
-endpoints =
-  [ post *> lit "echo" $> echo
-  ]
+endpoints :: forall e eff. (Endpoint e) => Array (Service e eff)
+endpoints = [ echo ]
 
 template :: Markup -> Markup
 template body = do

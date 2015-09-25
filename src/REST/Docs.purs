@@ -5,7 +5,7 @@ module REST.Docs
   ( Document(..)
   , RoutePart(..)
   , Arg(..)
-  , documentToHTML
+  , documentToMarkup
   , Docs()
   , generateDocs
   , serveDocs
@@ -88,17 +88,17 @@ instance monoidDocument :: Monoid Document where
 foreign import prettyJSON :: forall a. a -> JSON
 
 -- | Render a `Document` as a HTML string.
-documentToHTML :: forall eff. Document -> Service eff -> Markup
-documentToHTML (Document d) service = do
+documentToMarkup :: forall eff. Service Docs eff -> Markup
+documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
   H.h1 $ text title
-  H.p $ text $ serviceNotes service
+  H.p $ text comments
   H.h2 $ text "Route Parameters"
   bulletedList (L.mapMaybe routePartToArg d.route) renderArg
   H.h2 $ text "Query Parameters"
   bulletedList d.queryArgs renderArg
   H.h2 $ text "Headers"
   bulletedList d.headers renderArg
-  serviceExtra service
+  serviceExtra serviceType
   where
   routePartToArg :: RoutePart -> Maybe Arg
   routePartToArg (MatchPart arg) = Just arg
@@ -119,13 +119,8 @@ documentToHTML (Document d) service = do
     H.code $ text a.key
     text $ " - " <> a.comments
 
-  serviceNotes :: Service eff -> String
-  serviceNotes (JsonService notes _ _ _) = notes
-  serviceNotes (HtmlService notes _) = notes
-  serviceNotes (AnyService notes _) = notes
-
-  serviceExtra :: Service eff -> Markup
-  serviceExtra (JsonService _ req res _) = do
+  serviceExtra :: ServiceType -> Markup
+  serviceExtra (JsonService req res) = do
     H.h2 $ text "Request Body"
     H.pre $ H.code $ text $ prettyJSON $req unit
     H.h2 $ text "Response Body"
@@ -160,49 +155,46 @@ generateTOC docs = do
 -- |
 -- | The `Endpoint` instance for `Docs` can be used to generate documentation
 -- | for a specification, using `generateDocs`, or `serveDocs`.
-data Docs a = Docs Document (Server Unit) a
+data Docs a = Docs Document (Server Unit)
 
 instance functorDocs :: Functor Docs where
-  map f (Docs d s a) = Docs d s (f a)
+  map _ (Docs d s) = Docs d s
 
 instance applyDocs :: Apply Docs where
-  apply (Docs d1 s1 f) (Docs d2 s2 a) = Docs (d1 <> d2) (s1 *> s2) (f a)
+  apply (Docs d1 s1) (Docs d2 s2) = Docs (d1 <> d2) (s1 *> s2)
 
 instance applicativeDocs :: Applicative Docs where
-  pure a = Docs mempty (pure unit) a
+  pure _ = Docs mempty (pure unit)
 
 instance endpointDocs :: Endpoint Docs where
   method m            = Docs (Document (emptyDoc { method = Just m }))
-                             (pure unit) unit
+                             (pure unit)
   lit s               = Docs (Document (emptyDoc { route = L.singleton (LiteralPart s) }))
-                             (lit s) unit
+                             (lit s)
   match hint comments = Docs (Document (emptyDoc { route = L.singleton (MatchPart (Arg { key: hint, comments: comments })) }))
-                             (lit "_") ""
+                             (lit "_")
   query key comments  = Docs (Document (emptyDoc { queryArgs = L.singleton (Arg { key: key, comments: comments }) }))
-                             (pure unit) L.Nil
+                             (pure unit)
   header key comments = Docs (Document (emptyDoc { headers = L.singleton (Arg { key: key, comments: comments }) }))
-                             (pure unit) ""
+                             (pure unit)
   optional = map Just
 
 -- | Generate documentation for an `Endpoint` specification.
-generateDocs :: forall a. Docs a -> Document
-generateDocs (Docs d _ _) = d
+generateDocs :: forall eff. Service Docs eff -> Document
+generateDocs (Service _ _ (Docs d _)) = d
 
 -- | Serve documentation for a set of `Endpoint` specifications on the specified port.
 serveDocs :: forall f a eff any.
   (Functor f, Foldable f) =>
-  f (Docs (Service any)) ->
+  f (Service Docs any) ->
   (Markup -> Markup) ->
   Int ->
   Eff (http :: Node.HTTP | eff) Unit ->
   Eff (http :: Node.HTTP | eff) Unit
 serveDocs endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
   where
-  toServer :: Docs (Service any) -> Server (Service eff)
-  toServer (Docs d s service) = lit "endpoint" *> s $> toApplication d service
+  toServer :: Service Docs any -> Service Server eff
+  toServer s@(Service _ _ (Docs _ server)) = staticHTML "Endpoint" (lit "endpoint" *> server $> wrap (documentToMarkup s))
 
-  toApplication :: Document -> Service any -> Service eff
-  toApplication docs service = staticHTML "Endpoint" $ wrap $ documentToHTML docs service
-
-  tocEndpoint :: Server (Service eff)
-  tocEndpoint = get $> staticHTML "Table of Contents" (wrap (generateTOC (map generateDocs (L.toList endpoints))))
+  tocEndpoint :: Service Server eff
+  tocEndpoint = staticHTML "Table of Contents" (get $> wrap (generateTOC (map generateDocs (L.toList endpoints))))

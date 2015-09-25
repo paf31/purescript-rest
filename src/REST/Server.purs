@@ -92,7 +92,7 @@ instance endpointServer :: Endpoint Server where
 -- | Serve a set of endpoints on the specified port.
 serve :: forall f eff.
   (Foldable f) =>
-  f (Server (Service eff)) ->
+  f (Service Server eff) ->
   Int ->
   Eff (http :: Node.HTTP | eff) Unit ->
   Eff (http :: Node.HTTP | eff) Unit
@@ -103,13 +103,13 @@ serve endpoints port callback = do
   respond :: Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
   respond req res = do
     let parsed = parseRequest req
-        mimpl  = runFirst $ foldMap (\(Server f) -> First (f parsed >>= ensureEOL)) endpoints
+        mimpl  = runFirst $ foldMap (\(Service _ _ (Server f)) -> First (f parsed >>= ensureEOL)) endpoints
 
         ensureEOL :: forall a. Tuple ParsedRequest a -> Maybe a
         ensureEOL (Tuple { route: L.Nil } a) = return a
         ensureEOL _ = Nothing
     case mimpl of
-      Just impl -> runService impl req res
+      Just impl -> impl req res
       _ -> do
         Node.setStatusCode res 404
         Node.setStatusMessage res "Not found"
