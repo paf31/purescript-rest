@@ -33,6 +33,7 @@ import qualified Node.URL         as Node
 
 import Control.Alt ((<|>))
 import Control.Apply
+import Control.Monad (when)
 import Control.Monad.Eff
 
 import qualified Text.Smolder.HTML                as H
@@ -92,12 +93,16 @@ documentToMarkup :: forall eff. Service Docs eff -> Markup
 documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
   H.h1 $ text title
   H.p $ text comments
-  H.h2 $ text "Route Parameters"
-  bulletedList (L.mapMaybe routePartToArg d.route) renderArg
-  H.h2 $ text "Query Parameters"
-  bulletedList d.queryArgs renderArg
-  H.h2 $ text "Headers"
-  bulletedList d.headers renderArg
+  let routeArgs = L.mapMaybe routePartToArg d.route
+  when (not $ L.null routeArgs) do
+    H.h2 $ text "Route Parameters"
+    bulletedList routeArgs renderArg
+  when (not $ L.null d.queryArgs) do
+    H.h2 $ text "Query Parameters"
+    bulletedList d.queryArgs renderArg
+  when (not $ L.null d.headers) do
+    H.h2 $ text "Headers"
+    bulletedList d.headers renderArg
   serviceExtra serviceType
   where
   routePartToArg :: RoutePart -> Maybe Arg
@@ -105,7 +110,6 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
   routePartToArg _ = Nothing
 
   bulletedList :: forall a. L.List a -> (a -> Markup) -> Markup
-  bulletedList L.Nil _ = H.p ! A.className "text-muted" $ text "None"
   bulletedList xs f = H.ul (for_ xs (H.li <<< f))
 
   title :: String
@@ -121,10 +125,14 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
 
   serviceExtra :: ServiceType -> Markup
   serviceExtra (JsonService req res) = do
-    H.h2 $ text "Request Body"
-    H.pre $ H.code $ text $ prettyJSON $req unit
-    H.h2 $ text "Response Body"
-    H.pre $ H.code $ text $ prettyJSON $ res unit
+    H.h2 $ text "Sample Request"
+    H.div ! A.className "row" $ do
+      H.div ! A.className "col-md-6" $ do
+        H.p $ H.strong $ text "Request Body"
+        H.pre $ H.code $ text $ prettyJSON $ req unit
+      H.div ! A.className "col-md-6" $ do
+        H.p $ H.strong $ text "Response Body"
+        H.pre $ H.code $ text $ prettyJSON $ res unit
   serviceExtra _ = mempty
 
 generateTOC :: L.List Document -> Markup
