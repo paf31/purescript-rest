@@ -17,6 +17,11 @@ foreign values.
 - `read <<< asForeign = pure`
 - `read <<< asForeign <=< read = read`
 
+##### Instances
+``` purescript
+instance arrayAsForeign :: (AsForeign a) => AsForeign (Array a)
+```
+
 #### `HasExample`
 
 ``` purescript

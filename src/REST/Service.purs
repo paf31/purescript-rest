@@ -50,6 +50,9 @@ import REST.Endpoint
 class (IsForeign a) <= AsForeign a where
   asForeign :: a -> Foreign
 
+instance arrayAsForeign :: (AsForeign a) => AsForeign (Array a) where
+  asForeign = toForeign <<< map asForeign
+
 -- | A type class for requests and responses which have examples.
 class (AsForeign a) <= HasExample a where
   example :: a
@@ -90,7 +93,6 @@ jsonService comments fimpl =
                        (\_ -> asForeign (example :: res)))
           (map toImpl fimpl)
   where
-  toImpl :: _ -> ServiceImpl eff
   toImpl impl req res = do
     let requestStream = Node.requestAsStream req
     Node.setEncoding requestStream Node.UTF8
@@ -117,7 +119,6 @@ htmlService :: forall f eff.
   Service f eff
 htmlService comments fimpl = Service comments HtmlService (map toImpl fimpl)
   where
-  toImpl :: _ -> ServiceImpl eff
   toImpl impl _ res = impl (sendResponse res 200 "text/html" <<< render)
 
 -- | Serve static HTML in the response.
