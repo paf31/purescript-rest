@@ -129,7 +129,7 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
   cURLCommand :: String
   cURLCommand = intercalate "\\\n    " $ map (intercalate " ") $
     [ [ ">", "curl" ] ++ foldMap (\m -> [ "-X", m ]) d.method ] ++
-    foldMap (\(Arg a) -> [ [ "-H", "'" ++ a.key ++ ": {" ++ a.key ++ "}''" ] ]) d.headers ++
+    foldMap (\(Arg a) -> [ [ "-H", "'" ++ a.key ++ ": {" ++ a.key ++ "}'" ] ]) d.headers ++
     cURLRequestBody ++
     [ [ url ] ]
     where
