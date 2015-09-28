@@ -151,7 +151,7 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
   renderRequestBody (JsonService req res) = do
     H.h3 $ text "request.json"
     H.pre $ H.code $ text $ prettyJSON $ req unit
-    H.h3 $ H.strong $ text "response.json"
+    H.h3 $ text "response.json"
     H.pre $ H.code $ text $ prettyJSON $ res unit
   renderRequestBody _ = mempty
 
