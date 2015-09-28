@@ -86,8 +86,8 @@ instance endpointServer :: Endpoint Server where
                               L.Cons hd tl -> Just (Tuple (r { route = tl }) hd)
                               _ -> Nothing
   query k _  = Server \r -> map (Tuple r) (S.lookup k r.query)
-  header k _ = Server \r -> map (Tuple r) (S.lookup k r.headers)
-  optional (Server s) = Server \r -> map Just <$> s r <|> Nothing
+  header k _ = Server \r -> map (Tuple r) (S.lookup (Data.String.toLower k) r.headers)
+  optional (Server s) = Server \r -> map Just <$> s r <|> pure (Tuple r Nothing)
 
 -- | Serve a set of endpoints on the specified port.
 serve :: forall f eff.
