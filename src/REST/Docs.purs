@@ -103,8 +103,7 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
   when (not $ L.null d.headers) do
     H.h2 $ text "Headers"
     bulletedList d.headers renderArg
-  H.h2 $ text "Sample Request"
-  H.p $ H.strong $ text "Example Request"
+  H.h2 $ text "Example Request"
   H.pre $ H.code $ text cURLCommand
   renderRequestBody serviceType
   where
@@ -150,13 +149,10 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
 
   renderRequestBody :: ServiceType -> Markup
   renderRequestBody (JsonService req res) = do
-    H.div ! A.className "row" $ do
-      H.div ! A.className "col-md-6" $ do
-        H.p $ H.strong $ text "request.json"
-        H.pre $ H.code $ text $ prettyJSON $ req unit
-      H.div ! A.className "col-md-6" $ do
-        H.p $ H.strong $ text "response.json"
-        H.pre $ H.code $ text $ prettyJSON $ res unit
+    H.h3 $ text "request.json"
+    H.pre $ H.code $ text $ prettyJSON $ req unit
+    H.h3 $ H.strong $ text "response.json"
+    H.pre $ H.code $ text $ prettyJSON $ res unit
   renderRequestBody _ = mempty
 
 generateTOC :: L.List Document -> Markup
