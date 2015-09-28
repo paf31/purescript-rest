@@ -18,7 +18,7 @@ import Data.Tuple
 import Data.Monoid
 import Data.Functor (($>))
 import Data.Function (on)
-import Data.Foldable (Foldable, foldMap, for_)
+import Data.Foldable (Foldable, foldMap, for_, intercalate)
 
 import qualified Data.List as L
 
@@ -103,7 +103,10 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
   when (not $ L.null d.headers) do
     H.h2 $ text "Headers"
     bulletedList d.headers renderArg
-  serviceExtra serviceType
+  H.h2 $ text "Sample Request"
+  H.p $ H.strong $ text "Example Request"
+  H.pre $ H.code $ text cURLCommand
+  renderRequestBody serviceType
   where
   routePartToArg :: RoutePart -> Maybe Arg
   routePartToArg (MatchPart arg) = Just arg
@@ -123,17 +126,38 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
     H.code $ text a.key
     text $ " - " <> a.comments
 
-  serviceExtra :: ServiceType -> Markup
-  serviceExtra (JsonService req res) = do
-    H.h2 $ text "Sample Request"
+  cURLCommand :: String
+  cURLCommand = intercalate "\\\n    " $ map (intercalate " ") $
+    [ [ ">", "curl" ] ++ foldMap (\m -> [ "-X", m ]) d.method ] ++
+    foldMap (\(Arg a) -> [ [ "-H", "'" ++ a.key ++ ": {" ++ a.key ++ "}''" ] ]) d.headers ++
+    cURLRequestBody ++
+    [ [ url ] ]
+    where
+    cURLRequestBody :: Array (Array String)
+    cURLRequestBody =
+      case serviceType of
+        JsonService _ _ -> [ [ "-H", "'Content-Type: application/json'" ], ["-d", "@request.json", "-o", "response.json" ] ]
+        _ -> []
+
+    url :: String
+    url = foldMap fromRoutePart d.route <> renderQuery d.queryArgs
+      where
+      fromRoutePart (LiteralPart s) = "/" <> s
+      fromRoutePart (MatchPart (Arg a)) = "/{" <> a.key <> "}"
+
+      renderQuery L.Nil = ""
+      renderQuery qs = "?" <> intercalate "\&" (map (\(Arg a) -> a.key <> "={" <> a.key <> "}") qs)
+
+  renderRequestBody :: ServiceType -> Markup
+  renderRequestBody (JsonService req res) = do
     H.div ! A.className "row" $ do
       H.div ! A.className "col-md-6" $ do
-        H.p $ H.strong $ text "Request Body"
+        H.p $ H.strong $ text "request.json"
         H.pre $ H.code $ text $ prettyJSON $ req unit
       H.div ! A.className "col-md-6" $ do
-        H.p $ H.strong $ text "Response Body"
+        H.p $ H.strong $ text "response.json"
         H.pre $ H.code $ text $ prettyJSON $ res unit
-  serviceExtra _ = mempty
+  renderRequestBody _ = mempty
 
 generateTOC :: L.List Document -> Markup
 generateTOC docs = do
