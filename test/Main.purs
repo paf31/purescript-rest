@@ -32,8 +32,8 @@ instance echoIsForeign :: IsForeign Echo where
 instance echoAsForeign :: AsForeign Echo where
   asForeign (Echo text) = toForeign { text: text }
 
-instance echoHasExample :: HasExample Echo where
-  example = Echo "Hello, World!"
+-- instance echoHasExample :: HasExample Echo where
+  -- example = Echo "Hello, World!"
 
 echo :: forall e eff. (Endpoint e) => Service e eff
 echo = jsonService "This service echoes the route argument in the response body." $

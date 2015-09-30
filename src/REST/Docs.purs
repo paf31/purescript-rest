@@ -90,9 +90,9 @@ foreign import prettyJSON :: forall a. a -> JSON
 
 -- | Render a `Document` as a HTML string.
 documentToMarkup :: forall eff. Service Docs eff -> Markup
-documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
+documentToMarkup (Service (ServiceInfo info) (Docs (Document d) _)) = do
   H.h1 $ text title
-  H.p $ text comments
+  H.p $ text info.comments
   let routeArgs = L.mapMaybe routePartToArg d.route
   when (not $ L.null routeArgs) do
     H.h2 $ text "Route Parameters"
@@ -105,7 +105,12 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
     bulletedList d.headers renderArg
   H.h2 $ text "Example Request"
   H.pre $ H.code $ text cURLCommand
-  renderRequestBody serviceType
+  for_ info.request $ \req -> do
+    H.h3 $ text "request.json"
+    H.pre $ H.code $ text $ prettyJSON $ req unit
+  for_ info.response $ \res -> do
+    H.h3 $ text "response.json"
+    H.pre $ H.code $ text $ prettyJSON $ res unit
   where
   routePartToArg :: RoutePart -> Maybe Arg
   routePartToArg (MatchPart arg) = Just arg
@@ -130,12 +135,19 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
     [ [ ">", "curl" ] ++ foldMap (\m -> [ "-X", m ]) d.method ] ++
     foldMap (\(Arg a) -> [ [ "-H", "'" ++ a.key ++ ": {" ++ a.key ++ "}'" ] ]) d.headers ++
     cURLRequestBody ++
+    cURLResponseBody ++
     [ [ url ] ]
     where
     cURLRequestBody :: Array (Array String)
     cURLRequestBody =
-      case serviceType of
-        JsonService _ _ -> [ [ "-H", "'Content-Type: application/json'" ], ["-d", "@request.json", "-o", "response.json" ] ]
+      case info.request of
+        Just _ -> [ [ "-H", "'Content-Type: application/json'" ], [ "-d", "@request.json" ] ]
+        _ -> []
+
+    cURLResponseBody :: Array (Array String)
+    cURLResponseBody =
+      case info.response of
+        Just _ -> [ [ "-o", "response.json" ] ]
         _ -> []
 
     url :: String
@@ -146,14 +158,6 @@ documentToMarkup (Service comments serviceType (Docs (Document d) _)) = do
 
       renderQuery L.Nil = ""
       renderQuery qs = "?" <> intercalate "\&" (map (\(Arg a) -> a.key <> "={" <> a.key <> "}") qs)
-
-  renderRequestBody :: ServiceType -> Markup
-  renderRequestBody (JsonService req res) = do
-    H.h3 $ text "request.json"
-    H.pre $ H.code $ text $ prettyJSON $ req unit
-    H.h3 $ text "response.json"
-    H.pre $ H.code $ text $ prettyJSON $ res unit
-  renderRequestBody _ = mempty
 
 generateTOC :: L.List Document -> Markup
 generateTOC docs = do
@@ -209,7 +213,7 @@ instance endpointDocs :: Endpoint Docs where
 
 -- | Generate documentation for an `Endpoint` specification.
 generateDocs :: forall eff. Service Docs eff -> Document
-generateDocs (Service _ _ (Docs d _)) = d
+generateDocs (Service _ (Docs d _)) = d
 
 -- | Serve documentation for a set of `Endpoint` specifications on the specified port.
 serveDocs :: forall f a eff any.
@@ -222,7 +226,7 @@ serveDocs :: forall f a eff any.
 serveDocs endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
   where
   toServer :: Service Docs any -> Service Server eff
-  toServer s@(Service _ _ (Docs _ server)) = staticHTML "Endpoint" (lit "endpoint" *> server $> wrap (documentToMarkup s))
+  toServer s@(Service _ (Docs _ server)) = staticHTML "Endpoint" (lit "endpoint" *> server $> wrap (documentToMarkup s))
 
   tocEndpoint :: Service Server eff
   tocEndpoint = staticHTML "Table of Contents" (get $> wrap (generateTOC (map generateDocs (L.toList endpoints))))

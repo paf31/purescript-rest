@@ -103,7 +103,7 @@ serve endpoints port callback = do
   respond :: Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
   respond req res = do
     let parsed = parseRequest req
-        mimpl  = runFirst $ foldMap (\(Service _ _ (Server f)) -> First (f parsed >>= ensureEOL)) endpoints
+        mimpl  = runFirst $ foldMap (\(Service _ (Server f)) -> First (f parsed >>= ensureEOL)) endpoints
 
         ensureEOL :: forall a. Tuple ParsedRequest a -> Maybe a
         ensureEOL (Tuple { route: L.Nil } a) = return a

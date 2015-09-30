@@ -22,15 +22,6 @@ foreign values.
 instance arrayAsForeign :: (AsForeign a) => AsForeign (Array a)
 ```
 
-#### `HasExample`
-
-``` purescript
-class (AsForeign a) <= HasExample a where
-  example :: a
-```
-
-A type class for requests and responses which have examples.
-
 #### `Example`
 
 ``` purescript
@@ -60,23 +51,19 @@ An error - status code and message.
 
 ``` purescript
 data Service f eff
-  = Service Comments ServiceType (f (ServiceImpl eff))
+  = Service ServiceInfo (f (ServiceImpl eff))
 ```
 
 A generic service.
 
-#### `ServiceType`
+#### `ServiceInfo`
 
 ``` purescript
-data ServiceType
-  = JsonService Example Example
-  | HtmlService
-  | AnyService
+newtype ServiceInfo
+  = ServiceInfo { comments :: Comments, request :: Maybe Example, response :: Maybe Example }
 ```
 
-Enumerates different types of service.
-
-It is useful to differentiate these for documentation purposes.
+Information about a service, for documentation purposes.
 
 #### `ServiceImpl`
 
@@ -89,7 +76,7 @@ An implementation of a service
 #### `jsonService`
 
 ``` purescript
-jsonService :: forall f eff req res. (Functor f, HasExample req, HasExample res) => Comments -> f (req -> (Either ServiceError res -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
+jsonService :: forall f eff req res. (Functor f, IsForeign req, AsForeign res) => Comments -> f (req -> (Either ServiceError res -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
 ```
 
 Create a `Service` which reads a JSON structure from the request body, and writes a JSON structure
@@ -110,14 +97,6 @@ staticHTML :: forall f eff. (Functor f) => Comments -> f Markup -> Service f eff
 ```
 
 Serve static HTML in the response.
-
-#### `anyService`
-
-``` purescript
-anyService :: forall f eff. Comments -> f (ServiceImpl eff) -> Service f eff
-```
-
-Create a service from a low-level request/response handler.
 
 #### `runService`
 
