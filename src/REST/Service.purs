@@ -4,13 +4,18 @@ module REST.Service
   ( AsForeign
   , asForeign
   , Example()
+  , HasExample
+  , example
   , ServiceError(..)
   , Service(..)
   , ServiceInfo(..)
   , ServiceImpl()
   , JSON()
-  , jsonService
-  , htmlService
+  , WithRequest()
+  , withRequest
+  , jsonRequest
+  , jsonResponse
+  , htmlResponse
   , staticHTML
   , runService
   ) where
@@ -52,7 +57,11 @@ instance arrayAsForeign :: (AsForeign a) => AsForeign (Array a) where
   asForeign = toForeign <<< map asForeign
 
 -- | An example of a request or response.
-type Example = Unit -> Foreign
+type Example = Foreign
+
+-- | A class for types which have examples.
+class (AsForeign a) <= HasExample a where
+  example :: a
 
 -- | A type synonym for JSON strings.
 type JSON = String
@@ -65,7 +74,7 @@ data Service f eff = Service ServiceInfo (f (ServiceImpl eff))
 
 -- | Information about a service, for documentation purposes.
 newtype ServiceInfo = ServiceInfo
-  { comments :: Comments
+  { comments :: Maybe Comments
   , request  :: Maybe Example
   , response :: Maybe Example
   }
@@ -73,18 +82,30 @@ newtype ServiceInfo = ServiceInfo
 -- | An implementation of a service
 type ServiceImpl eff = Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
 
--- | Create a `Service` which reads a JSON structure from the request body, and writes a JSON structure
--- | to the response body.
-jsonService :: forall f eff req res.
-  (Functor f, IsForeign req, AsForeign res) =>
-  Comments ->
-  (f (req -> (Either ServiceError res -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit)) ->
-  Service f eff
-jsonService comments fimpl = Service serviceInfo (map toImpl fimpl)
-  where
-  serviceInfo = ServiceInfo { comments: comments, request: Nothing, response: Nothing }
+newtype WithRequest req f a = WithRequest (f (req -> a))
 
-  toImpl impl req res = do
+instance functorWithRequest :: (Functor f) => Functor (WithRequest req f) where
+  map f (WithRequest fk) = WithRequest (map (>>> f) fk)
+
+-- | Build a structure of type `WithRequest` to capture the request body.
+withRequest :: forall req f a. f (req -> a) -> WithRequest req f a
+withRequest = WithRequest
+
+-- | Create a `Service` which parses a JSON request body.
+-- |
+-- | The `WithRequest` data structure is necessary so that the request is only available
+-- | _after_ parsing the route.
+jsonRequest :: forall f eff req.
+  (Functor f, HasExample req) =>
+  Service (WithRequest req f) eff ->
+  Service f eff
+jsonRequest (Service (ServiceInfo info) (WithRequest fimpl)) = Service serviceInfo (map toImpl fimpl)
+  where
+  serviceInfo :: ServiceInfo
+  serviceInfo = ServiceInfo (info { request = Just (asForeign (example :: req)) })
+
+  toImpl :: (req -> ServiceImpl eff) -> ServiceImpl eff
+  toImpl f req res = do
     let requestStream = Node.requestAsStream req
     Node.setEncoding requestStream Node.UTF8
     bodyRef <- unsafeRunRef $ newRef ""
@@ -95,27 +116,41 @@ jsonService comments fimpl = Service serviceInfo (map toImpl fimpl)
     Node.onEnd requestStream do
       body <- unsafeRunRef $ readRef bodyRef
       case readJSON body of
-        Right req -> impl req respond
+        Right a -> f a req res
         Left err -> sendResponse res 400 "text/plain" ("Bad request: " <> show err)
-    where
-    respond :: Either ServiceError res -> Eff (http :: Node.HTTP | eff) Unit
-    respond (Left (ServiceError statusCode message)) = sendResponse res statusCode "text/plain" message
-    respond (Right response) = sendResponse res 200 "application/json" $ unsafeStringify $ asForeign response
+
+-- | Create a `Service` which writes a JSON structure to the response body.
+jsonResponse :: forall f eff res.
+  (Functor f, HasExample res) =>
+  Comments ->
+  f (Either ServiceError res) ->
+  Service f eff
+jsonResponse comments fimpl = Service serviceInfo (map toImpl fimpl)
+  where
+  serviceInfo :: ServiceInfo
+  serviceInfo = ServiceInfo { comments: Just comments, request: Nothing, response: Just (asForeign (example :: res)) }
+
+  toImpl :: Either ServiceError res -> ServiceImpl eff
+  toImpl (Left (ServiceError statusCode message)) _ res = sendResponse res statusCode "text/plain" message
+  toImpl (Right response) _ res = sendResponse res 200 "application/json" $ unsafeStringify $ asForeign response
 
 -- | Create a `Service` which renders HTML content.
-htmlService :: forall f eff.
+htmlResponse :: forall f eff.
   (Functor f) =>
   Comments ->
   (f ((Markup -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit)) ->
   Service f eff
-htmlService comments fimpl = Service serviceInfo (map toImpl fimpl)
+htmlResponse comments fimpl = Service serviceInfo (map toImpl fimpl)
   where
-  serviceInfo = ServiceInfo { comments: comments, request: Nothing, response: Nothing }
+  serviceInfo :: ServiceInfo
+  serviceInfo = ServiceInfo { comments: Just comments, request: Nothing, response: Nothing }
+
+  toImpl :: ((Markup -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit) -> ServiceImpl eff
   toImpl impl _ res = impl (sendResponse res 200 "text/html" <<< render)
 
 -- | Serve static HTML in the response.
 staticHTML :: forall f eff. (Functor f) => Comments -> f Markup -> Service f eff
-staticHTML comments m = htmlService comments (map (#) m)
+staticHTML comments m = htmlResponse comments (map (#) m)
 
 sendResponse :: forall eff. Node.Response -> Int -> String -> String -> Eff (http :: Node.HTTP | eff) Unit
 sendResponse res code contentType message = do

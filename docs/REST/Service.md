@@ -25,10 +25,19 @@ instance arrayAsForeign :: (AsForeign a) => AsForeign (Array a)
 #### `Example`
 
 ``` purescript
-type Example = Unit -> Foreign
+type Example = Foreign
 ```
 
 An example of a request or response.
+
+#### `HasExample`
+
+``` purescript
+class (AsForeign a) <= HasExample a where
+  example :: a
+```
+
+A class for types which have examples.
 
 #### `JSON`
 
@@ -60,7 +69,7 @@ A generic service.
 
 ``` purescript
 newtype ServiceInfo
-  = ServiceInfo { comments :: Comments, request :: Maybe Example, response :: Maybe Example }
+  = ServiceInfo { comments :: Maybe Comments, request :: Maybe Example, response :: Maybe Example }
 ```
 
 Information about a service, for documentation purposes.
@@ -73,19 +82,48 @@ type ServiceImpl eff = Request -> Response -> Eff (http :: HTTP | eff) Unit
 
 An implementation of a service
 
-#### `jsonService`
+#### `WithRequest`
 
 ``` purescript
-jsonService :: forall f eff req res. (Functor f, IsForeign req, AsForeign res) => Comments -> f (req -> (Either ServiceError res -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
+newtype WithRequest req f a
 ```
 
-Create a `Service` which reads a JSON structure from the request body, and writes a JSON structure
-to the response body.
+##### Instances
+``` purescript
+instance functorWithRequest :: (Functor f) => Functor (WithRequest req f)
+```
 
-#### `htmlService`
+#### `withRequest`
 
 ``` purescript
-htmlService :: forall f eff. (Functor f) => Comments -> f ((Markup -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
+withRequest :: forall req f a. f (req -> a) -> WithRequest req f a
+```
+
+Build a structure of type `WithRequest` to capture the request body.
+
+#### `jsonRequest`
+
+``` purescript
+jsonRequest :: forall f eff req. (Functor f, HasExample req) => Service (WithRequest req f) eff -> Service f eff
+```
+
+Create a `Service` which parses a JSON request body.
+
+The `WithRequest` data structure is necessary so that the request is only available
+_after_ parsing the route.
+
+#### `jsonResponse`
+
+``` purescript
+jsonResponse :: forall f eff res. (Functor f, HasExample res) => Comments -> f (Either ServiceError res) -> Service f eff
+```
+
+Create a `Service` which writes a JSON structure to the response body.
+
+#### `htmlResponse`
+
+``` purescript
+htmlResponse :: forall f eff. (Functor f) => Comments -> f ((Markup -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
 ```
 
 Create a `Service` which renders HTML content.

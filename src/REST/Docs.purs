@@ -92,7 +92,7 @@ foreign import prettyJSON :: forall a. a -> JSON
 documentToMarkup :: forall eff. Service Docs eff -> Markup
 documentToMarkup (Service (ServiceInfo info) (Docs (Document d) _)) = do
   H.h1 $ text title
-  H.p $ text info.comments
+  for_ info.comments (H.p <<< text)
   let routeArgs = L.mapMaybe routePartToArg d.route
   when (not $ L.null routeArgs) do
     H.h2 $ text "Route Parameters"
@@ -107,10 +107,10 @@ documentToMarkup (Service (ServiceInfo info) (Docs (Document d) _)) = do
   H.pre $ H.code $ text cURLCommand
   for_ info.request $ \req -> do
     H.h3 $ text "request.json"
-    H.pre $ H.code $ text $ prettyJSON $ req unit
+    H.pre $ H.code $ text $ prettyJSON req
   for_ info.response $ \res -> do
     H.h3 $ text "response.json"
-    H.pre $ H.code $ text $ prettyJSON $ res unit
+    H.pre $ H.code $ text $ prettyJSON res
   where
   routePartToArg :: RoutePart -> Maybe Arg
   routePartToArg (MatchPart arg) = Just arg
