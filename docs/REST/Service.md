@@ -74,6 +74,14 @@ newtype ServiceInfo
 
 Information about a service, for documentation purposes.
 
+#### `withComments`
+
+``` purescript
+withComments :: forall f eff. Comments -> Service f eff -> Service f eff
+```
+
+Add comments to a `Service`, for documentation purposes.
+
 #### `ServiceImpl`
 
 ``` purescript
@@ -115,7 +123,7 @@ _after_ parsing the route.
 #### `jsonResponse`
 
 ``` purescript
-jsonResponse :: forall f eff res. (Functor f, HasExample res) => Comments -> f (Either ServiceError res) -> Service f eff
+jsonResponse :: forall f eff res. (Functor f, HasExample res) => f ((Either ServiceError res -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
 ```
 
 Create a `Service` which writes a JSON structure to the response body.
@@ -123,7 +131,7 @@ Create a `Service` which writes a JSON structure to the response body.
 #### `htmlResponse`
 
 ``` purescript
-htmlResponse :: forall f eff. (Functor f) => Comments -> f ((Markup -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
+htmlResponse :: forall f eff. (Functor f) => f ((Markup -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
 ```
 
 Create a `Service` which renders HTML content.
@@ -131,7 +139,7 @@ Create a `Service` which renders HTML content.
 #### `staticHTML`
 
 ``` purescript
-staticHTML :: forall f eff. (Functor f) => Comments -> f Markup -> Service f eff
+staticHTML :: forall f eff. (Functor f) => f Markup -> Service f eff
 ```
 
 Serve static HTML in the response.

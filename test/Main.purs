@@ -36,10 +36,10 @@ instance echoHasExample :: HasExample Echo where
   example = Echo "Hello, World!"
 
 echo :: forall e eff. (Endpoint e) => Service e eff
-echo = jsonRequest $
-         jsonResponse "This service echoes the route argument in the response body." $
-           withRequest $
-             post *> lit "echo" $> \(Echo text) -> Right (Echo text)
+echo = withRequest (post *> lit "echo" $> \(Echo text) k -> k (Right (Echo text)))
+         # jsonResponse
+         # jsonRequest
+         # withComments "This service echoes the route argument in the response body."
 
 endpoints :: forall e eff. (Endpoint e) => Array (Service e eff)
 endpoints = [ echo ]

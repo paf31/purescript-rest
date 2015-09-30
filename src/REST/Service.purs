@@ -11,6 +11,7 @@ module REST.Service
   , ServiceInfo(..)
   , ServiceImpl()
   , JSON()
+  , withComments
   , WithRequest()
   , withRequest
   , jsonRequest
@@ -79,6 +80,10 @@ newtype ServiceInfo = ServiceInfo
   , response :: Maybe Example
   }
 
+-- | Add comments to a `Service`, for documentation purposes.
+withComments :: forall f eff. Comments -> Service f eff -> Service f eff
+withComments comments (Service (ServiceInfo serviceInfo) fs) = Service (ServiceInfo (serviceInfo { comments = Just comments })) fs
+
 -- | An implementation of a service
 type ServiceImpl eff = Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
 
@@ -122,35 +127,35 @@ jsonRequest (Service (ServiceInfo info) (WithRequest fimpl)) = Service serviceIn
 -- | Create a `Service` which writes a JSON structure to the response body.
 jsonResponse :: forall f eff res.
   (Functor f, HasExample res) =>
-  Comments ->
-  f (Either ServiceError res) ->
+  f ((Either ServiceError res -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit) ->
   Service f eff
-jsonResponse comments fimpl = Service serviceInfo (map toImpl fimpl)
+jsonResponse fimpl = Service serviceInfo (map toImpl fimpl)
   where
   serviceInfo :: ServiceInfo
-  serviceInfo = ServiceInfo { comments: Just comments, request: Nothing, response: Just (asForeign (example :: res)) }
+  serviceInfo = ServiceInfo { comments: Nothing, request: Nothing, response: Just (asForeign (example :: res)) }
 
-  toImpl :: Either ServiceError res -> ServiceImpl eff
-  toImpl (Left (ServiceError statusCode message)) _ res = sendResponse res statusCode "text/plain" message
-  toImpl (Right response) _ res = sendResponse res 200 "application/json" $ unsafeStringify $ asForeign response
+  toImpl :: ((Either ServiceError res -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit) -> ServiceImpl eff
+  toImpl impl _ res = impl \result ->
+    case result of
+      Left (ServiceError statusCode message) -> sendResponse res statusCode "text/plain" message
+      Right response -> sendResponse res 200 "application/json" $ unsafeStringify $ asForeign response
 
 -- | Create a `Service` which renders HTML content.
 htmlResponse :: forall f eff.
   (Functor f) =>
-  Comments ->
   (f ((Markup -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit)) ->
   Service f eff
-htmlResponse comments fimpl = Service serviceInfo (map toImpl fimpl)
+htmlResponse fimpl = Service serviceInfo (map toImpl fimpl)
   where
   serviceInfo :: ServiceInfo
-  serviceInfo = ServiceInfo { comments: Just comments, request: Nothing, response: Nothing }
+  serviceInfo = ServiceInfo { comments: Nothing, request: Nothing, response: Nothing }
 
   toImpl :: ((Markup -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit) -> ServiceImpl eff
   toImpl impl _ res = impl (sendResponse res 200 "text/html" <<< render)
 
 -- | Serve static HTML in the response.
-staticHTML :: forall f eff. (Functor f) => Comments -> f Markup -> Service f eff
-staticHTML comments m = htmlResponse comments (map (#) m)
+staticHTML :: forall f eff. (Functor f) => f Markup -> Service f eff
+staticHTML m = htmlResponse (map (#) m)
 
 sendResponse :: forall eff. Node.Response -> Int -> String -> String -> Eff (http :: Node.HTTP | eff) Unit
 sendResponse res code contentType message = do

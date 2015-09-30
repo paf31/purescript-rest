@@ -226,7 +226,7 @@ serveDocs :: forall f a eff any.
 serveDocs endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
   where
   toServer :: Service Docs any -> Service Server eff
-  toServer s@(Service _ (Docs _ server)) = staticHTML "Endpoint" (lit "endpoint" *> server $> wrap (documentToMarkup s))
+  toServer s@(Service _ (Docs _ server)) = staticHTML (lit "endpoint" *> server $> wrap (documentToMarkup s))
 
   tocEndpoint :: Service Server eff
-  tocEndpoint = staticHTML "Table of Contents" (get $> wrap (generateTOC (map generateDocs (L.toList endpoints))))
+  tocEndpoint = staticHTML (get $> wrap (generateTOC (map generateDocs (L.toList endpoints))))
