@@ -132,10 +132,10 @@ documentToMarkup (Docs (Document d) _) = do
   bulletedList xs f = H.ul (for_ xs (H.li <<< f))
 
   title :: String
-  title = maybe "" (<> " ") d.method <> foldMap fromRoutePart d.route
+  title = maybe "" (<> " ") d.method <> "/" <> intercalate "/" (map fromRoutePart d.route)
     where
-    fromRoutePart (LiteralPart s) = "/" <> s
-    fromRoutePart (MatchPart (Arg a)) = "/:" <> a.key
+    fromRoutePart (LiteralPart s) = s
+    fromRoutePart (MatchPart (Arg a)) = ":" <> a.key
 
   renderArg :: Arg -> Markup
   renderArg (Arg a) = do
@@ -163,10 +163,10 @@ documentToMarkup (Docs (Document d) _) = do
         _ -> []
 
     url :: String
-    url = foldMap fromRoutePart d.route <> renderQuery d.queryArgs
+    url = "/" <> intercalate "/" (map fromRoutePart d.route) <> renderQuery d.queryArgs
       where
-      fromRoutePart (LiteralPart s) = "/" <> s
-      fromRoutePart (MatchPart (Arg a)) = "/{" <> a.key <> "}"
+      fromRoutePart (LiteralPart s) = s
+      fromRoutePart (MatchPart (Arg a)) = "{" <> a.key <> "}"
 
       renderQuery L.Nil = ""
       renderQuery qs = "?" <> intercalate "\&" (map (\(Arg a) -> a.key <> "={" <> a.key <> "}") qs)
@@ -190,10 +190,10 @@ generateTOC docs = do
     fromRoutePart (MatchPart _) = "/_"
 
   routeToText :: L.List RoutePart -> String
-  routeToText = foldMap fromRoutePart
+  routeToText = ("/" <>) <<< intercalate "/" <<< map fromRoutePart
     where
-    fromRoutePart (LiteralPart s) = "/" <> s
-    fromRoutePart (MatchPart (Arg a)) = "/:" <> a.key
+    fromRoutePart (LiteralPart s) = s
+    fromRoutePart (MatchPart (Arg a)) = ":" <> a.key
 
 -- | Documentation for a REST service.
 -- |

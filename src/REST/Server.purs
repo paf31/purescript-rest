@@ -132,11 +132,7 @@ serve endpoints port callback = do
   Node.listen server port callback
   where
   respond :: Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
-  respond req res = do
-    try (parseRequest req) (L.toList endpoints) \mimpl ->
-      case mimpl of
-        Just impl -> impl
-        _ -> sendResponse res 404 "Not found" "No matching endpoint"
+  respond req res = try (parseRequest req) (L.toList endpoints)
     where
     -- Ensure all route parts were matched
     ensureEOL :: forall a. Tuple ParsedRequest a -> Maybe a
@@ -146,15 +142,14 @@ serve endpoints port callback = do
     -- Try each endpoint in order
     try :: ParsedRequest ->
            L.List (Server eff (Eff (http :: Node.HTTP | eff) Unit)) ->
-           (Maybe (Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit) ->
            Eff (http :: Node.HTTP | eff) Unit
-    try _ L.Nil k = k Nothing
-    try preq (L.Cons (Server s) rest) k = do
+    try _ L.Nil = sendResponse res 404 "text/plain" "No matching endpoint"
+    try preq (L.Cons (Server s) rest) = do
       s req res preq \mres ->
         case mres of
-          Nothing -> try preq rest k
-          Just (Left (ServiceError code msg)) -> sendResponse res code msg msg
+          Nothing -> try preq rest
+          Just (Left (ServiceError code msg)) -> sendResponse res code "text/plain" msg
           Just (Right impl) ->
             case ensureEOL impl of
-              Nothing -> try preq rest k
-              Just impl -> k (Just impl)
+              Nothing -> try preq rest
+              Just impl -> impl

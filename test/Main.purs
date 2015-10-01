@@ -35,6 +35,11 @@ instance echoAsForeign :: AsForeign Echo where
 instance echoHasExample :: HasExample Echo where
   example = Echo "Hello, World!"
 
+home :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
+home = worker <$> (get *> response)
+  where
+  worker res = sendResponse res 200 "text/plain" "Hello, world!"
+
 echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
 echo = worker <$> (docs *> post *> lit "echo" *> jsonRequest) <*> jsonResponse
   where
@@ -45,7 +50,7 @@ echo = worker <$> (docs *> post *> lit "echo" *> jsonRequest) <*> jsonResponse
   docs = comments "Echos the request body in the response body."
 
 endpoints :: forall e eff. (Endpoint e) => Array (e (Eff (http :: Node.HTTP | eff) Unit))
-endpoints = [ echo ]
+endpoints = [ home, echo ]
 
 template :: Markup -> Markup
 template body = do
