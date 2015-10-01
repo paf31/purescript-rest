@@ -90,29 +90,29 @@ type ServiceImpl eff = Request -> Response -> Eff (http :: HTTP | eff) Unit
 
 An implementation of a service
 
-#### `WithRequest`
+#### `With`
 
 ``` purescript
-newtype WithRequest req f a
+newtype With i f a
 ```
 
 ##### Instances
 ``` purescript
-instance functorWithRequest :: (Functor f) => Functor (WithRequest req f)
+instance functorWith :: (Functor f) => Functor (With i f)
 ```
 
-#### `withRequest`
+#### `with`
 
 ``` purescript
-withRequest :: forall req f a. f (req -> a) -> WithRequest req f a
+with :: forall i f a. f (i -> a) -> With i f a
 ```
 
-Build a structure of type `WithRequest` to capture the request body.
+Build a structure of type `With` to capture an argument in the service implementation.
 
 #### `jsonRequest`
 
 ``` purescript
-jsonRequest :: forall f eff req. (Functor f, HasExample req) => Service (WithRequest req f) eff -> Service f eff
+jsonRequest :: forall f eff req. (Functor f, HasExample req) => Service (With req f) eff -> Service f eff
 ```
 
 Create a `Service` which parses a JSON request body.
@@ -123,7 +123,7 @@ _after_ parsing the route.
 #### `jsonResponse`
 
 ``` purescript
-jsonResponse :: forall f eff res. (Functor f, HasExample res) => f ((Either ServiceError res -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
+jsonResponse :: forall f eff res. (Functor f, HasExample res) => Service (With (Either ServiceError res -> Eff (http :: HTTP | eff) Unit) f) eff -> Service f eff
 ```
 
 Create a `Service` which writes a JSON structure to the response body.
@@ -131,10 +131,26 @@ Create a `Service` which writes a JSON structure to the response body.
 #### `htmlResponse`
 
 ``` purescript
-htmlResponse :: forall f eff. (Functor f) => f ((Markup -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit) -> Service f eff
+htmlResponse :: forall f eff res. (Functor f) => Service (With (Markup -> Eff (http :: HTTP | eff) Unit) f) eff -> Service f eff
 ```
 
 Create a `Service` which renders HTML content.
+
+#### `genericService`
+
+``` purescript
+genericService :: forall f eff. f (ServiceImpl eff) -> Service f eff
+```
+
+Create a service from a generic request/response handler.
+
+#### `simpleService`
+
+``` purescript
+simpleService :: forall f eff. (Functor f) => f (Eff (http :: HTTP | eff) Unit) -> Service f eff
+```
+
+Create a service from an effectful action.
 
 #### `staticHTML`
 

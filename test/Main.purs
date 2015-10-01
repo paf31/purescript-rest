@@ -21,7 +21,7 @@ import REST.Docs
 
 import qualified Text.Smolder.HTML                as H
 import qualified Text.Smolder.HTML.Attributes     as A
-import Text.Smolder.Markup
+import Text.Smolder.Markup (Markup(), (!), text)
 import Text.Smolder.Renderer.String (render)
 
 data Echo = Echo String
@@ -36,7 +36,8 @@ instance echoHasExample :: HasExample Echo where
   example = Echo "Hello, World!"
 
 echo :: forall e eff. (Endpoint e) => Service e eff
-echo = withRequest (post *> lit "echo" $> \(Echo text) k -> k (Right (Echo text)))
+echo = with (with (post *> lit "echo" $> \(Echo text) k -> k (Right (Echo text))))
+         # simpleService
          # jsonResponse
          # jsonRequest
          # withComments "This service echoes the route argument in the response body."
