@@ -7,7 +7,7 @@ for an `Endpoint` specification.
 
 ``` purescript
 newtype Document
-  = Document { method :: Maybe String, route :: List RoutePart, queryArgs :: List Arg, headers :: List Arg }
+  = Document { comments :: Maybe Comments, method :: Maybe String, route :: List RoutePart, queryArgs :: List Arg, headers :: List Arg, request :: Maybe Example, response :: Maybe Example }
 ```
 
 The documentation data structure.
@@ -42,7 +42,7 @@ An `Arg` represents an argument matched by a query argument or header.
 #### `documentToMarkup`
 
 ``` purescript
-documentToMarkup :: forall eff. Service Docs eff -> Markup
+documentToMarkup :: forall eff any. Docs eff any -> Markup
 ```
 
 Render a `Document` as a HTML string.
@@ -50,7 +50,7 @@ Render a `Document` as a HTML string.
 #### `Docs`
 
 ``` purescript
-data Docs a
+data Docs eff a
 ```
 
 Documentation for a REST service.
@@ -60,16 +60,16 @@ for a specification, using `generateDocs`, or `serveDocs`.
 
 ##### Instances
 ``` purescript
-instance functorDocs :: Functor Docs
-instance applyDocs :: Apply Docs
-instance applicativeDocs :: Applicative Docs
-instance endpointDocs :: Endpoint Docs
+instance functorDocs :: Functor (Docs eff)
+instance applyDocs :: Apply (Docs eff)
+instance applicativeDocs :: Applicative (Docs eff)
+instance endpointDocs :: Endpoint (Docs eff)
 ```
 
 #### `generateDocs`
 
 ``` purescript
-generateDocs :: forall eff. Service Docs eff -> Document
+generateDocs :: forall eff a. Docs eff a -> Document
 ```
 
 Generate documentation for an `Endpoint` specification.
@@ -77,7 +77,7 @@ Generate documentation for an `Endpoint` specification.
 #### `serveDocs`
 
 ``` purescript
-serveDocs :: forall f a eff any. (Functor f, Foldable f) => f (Service Docs any) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
+serveDocs :: forall f a eff any. (Functor f, Foldable f) => f (Docs eff any) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
 ```
 
 Serve documentation for a set of `Endpoint` specifications on the specified port.

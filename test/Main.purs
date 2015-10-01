@@ -8,6 +8,7 @@ import Data.Foreign
 import Data.Foreign.Class
 
 import Control.Apply
+import Control.Monad.Eff
 import Control.Monad.Eff.Console
 
 import qualified Node.HTTP        as Node
@@ -16,7 +17,6 @@ import qualified Node.Stream      as Node
 
 import REST.Endpoint
 import REST.Server
-import REST.Service
 import REST.Docs
 
 import qualified Text.Smolder.HTML                as H
@@ -35,14 +35,16 @@ instance echoAsForeign :: AsForeign Echo where
 instance echoHasExample :: HasExample Echo where
   example = Echo "Hello, World!"
 
-echo :: forall e eff. (Endpoint e) => Service e eff
-echo = with (with (post *> lit "echo" $> \(Echo text) k -> k (Right (Echo text))))
-         # simpleService
-         # jsonResponse
-         # jsonRequest
-         # withComments "This service echoes the route argument in the response body."
+echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
+echo = worker <$> (docs *> post *> lit "echo" *> jsonRequest) <*> jsonResponse
+  where
+  worker :: Echo -> (Echo -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit
+  worker e k = k e
 
-endpoints :: forall e eff. (Endpoint e) => Array (Service e eff)
+  docs :: e Unit
+  docs = comments "Echos the request body in the response body."
+
+endpoints :: forall e eff. (Endpoint e) => Array (e (Eff (http :: Node.HTTP | eff) Unit))
 endpoints = [ echo ]
 
 template :: Markup -> Markup
