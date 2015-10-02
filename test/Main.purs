@@ -2,10 +2,12 @@ module Test.Main where
 
 import Prelude
 
+import Data.Maybe
 import Data.Either
 import Data.Functor (($>))
 import Data.Foreign
 import Data.Foreign.Class
+import Data.String (toUpper, null)
 
 import Control.Apply
 import Control.Monad.Eff
@@ -41,13 +43,17 @@ home = worker <$> (get *> response)
   worker res = sendResponse res 200 "text/plain" "Hello, world!"
 
 echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
-echo = worker <$> (docs *> post *> lit "echo" *> jsonRequest) <*> jsonResponse
+echo = worker <$> (docs *> post *> lit "echo" *> optional shout) <*> jsonRequest <*> jsonResponse
   where
-  worker :: Echo -> (Echo -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit
-  worker e k = k e
+  worker :: Maybe String -> Echo -> (Echo -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit
+  worker (Just h) (Echo s) k | not (null h) = k (Echo (toUpper s))
+  worker _ e k = k e
 
   docs :: e Unit
   docs = comments "Echos the request body in the response body."
+
+  shout :: forall e. (Endpoint e) => e String
+  shout = header "X-Shout" "This header should be non-empty if the result should be capitalized."
 
 endpoints :: forall e eff. (Endpoint e) => Array (e (Eff (http :: Node.HTTP | eff) Unit))
 endpoints = [ home, echo ]
@@ -63,7 +69,9 @@ template body = do
       H.div ! A.className "container" $ body
 
 main = do
+  log "The API tester is configured to send requests to localhost:9000/api."
+  log "To avoid CORS issues in the browser, you should forward requests from port 9000 to 8080/8081 accordingly."
   serve endpoints 8080 do
     log "Listening on port 8080."
-  serveDocs endpoints template 8081 do
+  serveDocs "http://localhost:9000/api" endpoints template 8081 do
     log "Serving docs on port 8081."

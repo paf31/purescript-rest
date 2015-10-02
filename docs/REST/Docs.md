@@ -42,10 +42,12 @@ An `Arg` represents an argument matched by a query argument or header.
 #### `documentToMarkup`
 
 ``` purescript
-documentToMarkup :: forall eff any. Docs eff any -> Markup
+documentToMarkup :: forall eff any. String -> Docs eff any -> Markup
 ```
 
 Render a `Document` as a HTML string.
+
+The base URL for the running service should be provided in the first argument.
 
 #### `Docs`
 
@@ -77,7 +79,7 @@ Generate documentation for an `Endpoint` specification.
 #### `serveDocs`
 
 ``` purescript
-serveDocs :: forall f a eff any. (Functor f, Foldable f) => f (Docs eff any) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
+serveDocs :: forall f a eff any. (Functor f, Foldable f) => String -> f (Docs eff any) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
 ```
 
 Serve documentation for a set of `Endpoint` specifications on the specified port.
