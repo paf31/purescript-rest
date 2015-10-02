@@ -101,8 +101,10 @@ instance monoidDocument :: Monoid Document where
 foreign import prettyJSON :: forall a. a -> String
 
 -- | Render a `Document` as a HTML string.
-documentToMarkup :: forall eff any. Docs eff any -> Markup
-documentToMarkup (Docs (Document d) _) = do
+-- |
+-- | The base URL for the running service should be provided in the first argument.
+documentToMarkup :: forall eff any. String -> Docs eff any -> Markup
+documentToMarkup baseURL (Docs (Document d) _) = do
   H.h1 $ text title
   for_ d.comments (H.p <<< text)
   let routeArgs = L.mapMaybe routePartToArg d.route
@@ -123,6 +125,19 @@ documentToMarkup (Docs (Document d) _) = do
   for_ d.response $ \res -> do
     H.h3 $ text "response.json"
     H.pre $ H.code $ text $ prettyJSON res
+  H.h2 $ text "API Tester"
+  H.form ! A.id "tester" ! A.method (fromMaybe "GET" d.method) $ do
+    for_ routeArgs   $ textBox "param"
+    for_ d.queryArgs $ textBox "query"
+    for_ d.headers   $ textBox "header"
+    for_ d.request $ \req -> do
+      H.div ! A.className "form-group" $ do
+        H.label $ text "Request Body"
+        H.textarea ! A.className "form-control" ! A.id "request" $ text $ prettyJSON req
+    H.button ! A.type' "submit" ! A.className "btn btn-default" $ text "Submit"
+  H.h3 $ text "API Response"
+  H.pre $ H.code ! A.id "tester-response" $ text "No response"
+  H.script ! A.type' "text/javascript" $ text javascriptContent
   where
   routePartToArg :: RoutePart -> Maybe Arg
   routePartToArg (MatchPart arg) = Just arg
@@ -132,7 +147,10 @@ documentToMarkup (Docs (Document d) _) = do
   bulletedList xs f = H.ul (for_ xs (H.li <<< f))
 
   title :: String
-  title = maybe "" (<> " ") d.method <> "/" <> intercalate "/" (map fromRoutePart d.route)
+  title = maybe "" (<> " ") d.method <> route
+
+  route :: String
+  route = "/" <> intercalate "/" (map fromRoutePart d.route)
     where
     fromRoutePart (LiteralPart s) = s
     fromRoutePart (MatchPart (Arg a)) = ":" <> a.key
@@ -141,6 +159,12 @@ documentToMarkup (Docs (Document d) _) = do
   renderArg (Arg a) = do
     H.code $ text a.key
     text $ " - " <> a.comments
+
+  textBox :: String -> Arg -> Markup
+  textBox pfx (Arg a) = do
+    H.div ! A.className "form-group" $ do
+      H.label $ text a.key
+      H.input ! A.type' "text" ! A.className "form-control" ! A.id (pfx <> "-" <> a.key)
 
   cURLCommand :: String
   cURLCommand = intercalate "\\\n    " $ map (intercalate " ") $
@@ -163,13 +187,57 @@ documentToMarkup (Docs (Document d) _) = do
         _ -> []
 
     url :: String
-    url = "/" <> intercalate "/" (map fromRoutePart d.route) <> renderQuery d.queryArgs
+    url = baseURL <> "/" <> intercalate "/" (map fromRoutePart d.route) <> renderQuery d.queryArgs
       where
       fromRoutePart (LiteralPart s) = s
       fromRoutePart (MatchPart (Arg a)) = "{" <> a.key <> "}"
 
       renderQuery L.Nil = ""
       renderQuery qs = "?" <> intercalate "\&" (map (\(Arg a) -> a.key <> "={" <> a.key <> "}") qs)
+
+  javascriptContent :: String
+  javascriptContent = foldMap (<> "\n") $
+    [ "var tester = document.getElementById('tester');"
+    , "tester.onsubmit = function() {"
+    , "  var xhr = new XMLHttpRequest();"
+    , "  var getFormValue = function(pfx, key) {"
+    , "    return document.getElementById(pfx + '-' + key).value;"
+    , "  };"
+    , "  var uri = '" <>
+        baseURL <>
+        "'" <>
+        routePart <>
+        queryPart <>
+        ";"
+    , "  xhr.open(tester.method, uri, true);"
+    ] ++
+    foldMap (\(Arg a) -> [ "  xhr.setRequestHeader('" <> a.key <> "', getFormValue('header', '" <> a.key <> "'));" ]) d.headers ++
+    [ "  xhr.onreadystatechange = function() {"
+    , "    if (xhr.readyState == 4) {"
+    , "      document.getElementById('tester-response').innerText = xhr.responseText;"
+    , "    }"
+    , "  }"
+    , maybe "  xhr.send();" (\_ -> "  xhr.send(document.getElementById('request').value);") d.request
+    , "  return false;"
+    , "};"
+    ]
+    where
+    routePart :: String
+    routePart = case d.route of
+                  L.Nil -> ""
+                  _ -> foldMap fromRoutePart d.route
+
+    fromRoutePart :: RoutePart -> String
+    fromRoutePart (LiteralPart s) = " + '/" <> s <> "'"
+    fromRoutePart (MatchPart (Arg a)) = " + '/' + getFormValue('param', '" <> a.key <> "')"
+
+    queryPart :: String
+    queryPart = case d.queryArgs of
+                  L.Nil -> ""
+                  _ -> " + '?' + " <> intercalate " + '&' + " (map fromQueryArg d.queryArgs)
+
+    fromQueryArg :: Arg -> String
+    fromQueryArg (Arg a) = "'" <> a.key <> "=' + " <> "getFormValue('query', '" <> a.key <> "')"
 
 generateTOC :: L.List Document -> Markup
 generateTOC docs = do
@@ -242,15 +310,16 @@ generateDocs (Docs d _) = d
 -- | Serve documentation for a set of `Endpoint` specifications on the specified port.
 serveDocs :: forall f a eff any.
   (Functor f, Foldable f) =>
+  String ->
   f (Docs eff any) ->
   (Markup -> Markup) ->
   Int ->
   Eff (http :: Node.HTTP | eff) Unit ->
   Eff (http :: Node.HTTP | eff) Unit
-serveDocs endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
+serveDocs baseURL endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
   where
   toServer :: Docs eff any -> Server eff (Eff (http :: Node.HTTP | eff) Unit)
-  toServer s@(Docs _ server) = staticHtmlResponse (lit "endpoint" *> server $> wrap (documentToMarkup s))
+  toServer s@(Docs _ server) = staticHtmlResponse (lit "endpoint" *> server $> wrap (documentToMarkup baseURL s))
 
   tocEndpoint :: Server eff (Eff (http :: Node.HTTP | eff) Unit)
   tocEndpoint = staticHtmlResponse (get $> wrap (generateTOC (map generateDocs (L.toList endpoints))))
