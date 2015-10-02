@@ -229,7 +229,7 @@ documentToMarkup baseURL (Docs (Document d) _) = do
 
     fromRoutePart :: RoutePart -> String
     fromRoutePart (LiteralPart s) = " + '/" <> s <> "'"
-    fromRoutePart (MatchPart (Arg a)) = " + getFormValue('param', '" <> a.key <> "')"
+    fromRoutePart (MatchPart (Arg a)) = " + '/' + getFormValue('param', '" <> a.key <> "')"
 
     queryPart :: String
     queryPart = case d.queryArgs of
