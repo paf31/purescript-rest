@@ -49,7 +49,7 @@ parseRequest :: Node.Request -> ParsedRequest
 parseRequest req =
   let url   = Node.parse (Node.requestURL req)
       query = Node.parseQueryString (fromMaybe "" (toMaybe url.query))
-  in { route:   L.filter (not <<< null) $ L.toList $ split "/" $ fromMaybe "" $ toMaybe url.path
+  in { route:   L.filter (not <<< null) $ L.toList $ split "/" $ fromMaybe "" $ toMaybe url.pathname
      , query:   parseQueryObject query
      , method:  Node.requestMethod req
      , headers: Node.requestHeaders req
