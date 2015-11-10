@@ -24,6 +24,7 @@ import qualified Data.List as L
 
 import REST.Endpoint
 import REST.Server
+import REST.JSON
 
 import qualified Node.HTTP        as Node
 import qualified Node.Encoding    as Node
@@ -96,9 +97,6 @@ instance semigroupDocument :: Semigroup Document where
 
 instance monoidDocument :: Monoid Document where
   mempty = Document emptyDoc
-
--- | Pretty-print JSON with spaces and new-lines
-foreign import prettyJSON :: forall a. a -> String
 
 -- | Render a `Document` as a HTML string.
 -- |

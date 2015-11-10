@@ -25,6 +25,7 @@ import Control.Monad.Eff.Ref
 import Control.Monad.Eff.Ref.Unsafe (unsafeRunRef)
 
 import REST.Endpoint
+import REST.JSON
 
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -112,7 +113,7 @@ instance endpointServer :: Endpoint (Server eff) where
         Right a -> k (Just (Right (Tuple r a)))
         Left err -> k (Just (Left (ServiceError 400 ("Bad request" <> show err))))
   jsonResponse = Server \req res r k -> do
-    let respond = sendResponse res 200 "application/json" <<< unsafeStringify <<< asForeign
+    let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
     k (Just (Right (Tuple r respond)))
   optional (Server s) = Server \req res r k -> s req res r \mt ->
                           case mt of
