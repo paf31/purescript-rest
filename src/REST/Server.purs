@@ -8,7 +8,6 @@ module REST.Server
 import Prelude
 
 import Data.Maybe
-import Data.Maybe.First (First(..), runFirst)
 import Data.Tuple
 import Data.Either (Either(..), either)
 import Data.Monoid
@@ -16,7 +15,7 @@ import Data.Nullable (toMaybe)
 import Data.String (split, null)
 import Data.Foreign (Foreign(), readString, readArray)
 import Data.Foreign.Class (IsForeign, readJSON)
-import Data.Foldable (Foldable, foldMap)
+import Data.Foldable (Foldable)
 import Data.Traversable (traverse)
 
 import Control.Alt ((<|>))
@@ -28,8 +27,6 @@ import REST.Endpoint
 import REST.JSON
 
 import Unsafe.Coerce (unsafeCoerce)
-
-import Global.Unsafe (unsafeStringify)
 
 import qualified Node.URL       as Node
 import qualified Node.HTTP      as Node

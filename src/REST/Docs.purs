@@ -27,8 +27,6 @@ import REST.Server
 import REST.JSON
 
 import qualified Node.HTTP        as Node
-import qualified Node.Encoding    as Node
-import qualified Node.Stream      as Node
 import qualified Node.URL         as Node
 
 import Control.Alt ((<|>))
@@ -39,7 +37,6 @@ import Control.Monad.Eff
 import qualified Text.Smolder.HTML                as H
 import qualified Text.Smolder.HTML.Attributes     as A
 import Text.Smolder.Markup (Markup(), text, (!))
-import Text.Smolder.Renderer.String (render)
 
 -- | The documentation data structure.
 -- |
@@ -243,20 +240,20 @@ generateTOC docs = do
   H.ul $ foldMap toListItem $ L.sortBy (compare `on` fst) $ map toTuple docs
   where
   toTuple :: Document -> Tuple String String
-  toTuple (Document d) = Tuple (routeToText d.route) (routeToHref d.route)
+  toTuple (Document d) = Tuple (routeToText d.method d.route) (routeToHref d.method d.route)
 
   toListItem :: Tuple String String -> Markup
   toListItem (Tuple s href) =
     H.li $ H.a ! A.href href $ text s
 
-  routeToHref :: L.List RoutePart -> String
-  routeToHref = Node.resolve "/" <<< ("/endpoint" <>) <<< foldMap fromRoutePart
+  routeToHref :: Maybe String -> L.List RoutePart -> String
+  routeToHref method = Node.resolve "/" <<< (("/endpoint/" <> fromMaybe "GET" method) <>) <<< foldMap fromRoutePart
     where
     fromRoutePart (LiteralPart s) = "/" <> s
     fromRoutePart (MatchPart _) = "/_"
 
-  routeToText :: L.List RoutePart -> String
-  routeToText = ("/" <>) <<< intercalate "/" <<< map fromRoutePart
+  routeToText :: Maybe String -> L.List RoutePart -> String
+  routeToText method parts = fromMaybe "GET" method <> " /" <> intercalate "/" (map fromRoutePart parts)
     where
     fromRoutePart (LiteralPart s) = s
     fromRoutePart (MatchPart (Arg a)) = ":" <> a.key
@@ -306,7 +303,7 @@ generateDocs :: forall eff a. Docs eff a -> Document
 generateDocs (Docs d _) = d
 
 -- | Serve documentation for a set of `Endpoint` specifications on the specified port.
-serveDocs :: forall f a eff any.
+serveDocs :: forall f eff any.
   (Functor f, Foldable f) =>
   String ->
   f (Docs eff any) ->
@@ -317,7 +314,7 @@ serveDocs :: forall f a eff any.
 serveDocs baseURL endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
   where
   toServer :: Docs eff any -> Server eff (Eff (http :: Node.HTTP | eff) Unit)
-  toServer s@(Docs _ server) = staticHtmlResponse (lit "endpoint" *> server $> wrap (documentToMarkup baseURL s))
+  toServer s@(Docs (Document d) server) = staticHtmlResponse (lit "endpoint" *> lit (fromMaybe "GET" d.method) *> server $> wrap (documentToMarkup baseURL s))
 
   tocEndpoint :: Server eff (Eff (http :: Node.HTTP | eff) Unit)
   tocEndpoint = staticHtmlResponse (get $> wrap (generateTOC (map generateDocs (L.toList endpoints))))

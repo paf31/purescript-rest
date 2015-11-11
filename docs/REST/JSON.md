@@ -1,7 +1,5 @@
 ## Module REST.JSON
 
-Helper methods for dealing with JSON data.
-
 #### `prettyJSON`
 
 ``` purescript

@@ -42,10 +42,9 @@ import Control.Monad.Eff
 
 import qualified Data.List as L
 
-import qualified Node.URL       as Node
+import qualified Node.Encoding  as Node
 import qualified Node.HTTP      as Node
 import qualified Node.Stream    as Node
-import qualified Node.Encoding  as Node
 
 import Text.Smolder.Markup (Markup())
 import Text.Smolder.Renderer.String (render)
