@@ -26,7 +26,8 @@ module REST.Endpoint
    , post
    , put
    , delete
-   , Client()
+   , Source()
+   , Sink()
    , htmlResponse
    , staticHtmlResponse
    , sendResponse
@@ -35,6 +36,7 @@ module REST.Endpoint
 import Prelude
 
 import Data.Maybe
+import Data.Either
 import Data.Foreign
 import Data.Foreign.Class
 
@@ -77,8 +79,11 @@ type Example = Foreign
 class (AsForeign a) <= HasExample a where
   example :: a
 
--- | A `Client` receives a typed response from a service.
-type Client eff res = res -> Eff (http :: Node.HTTP | eff) Unit
+-- | A `Sink` receives a response.
+type Sink eff res = res -> Eff (http :: Node.HTTP | eff) Unit
+
+-- | A `Source` provides a request asynchronously.
+type Source eff req = (req -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit
 
 -- | A service error - status code and message.
 data ServiceError = ServiceError Int String
@@ -103,8 +108,8 @@ class (Applicative e) <= Endpoint e where
   header       :: String -> Comments -> e String
   request      :: e Node.Request
   response     :: e Node.Response
-  jsonRequest  :: forall req. (HasExample req) => e req
-  jsonResponse :: forall res eff. (HasExample res) => e (Client eff res)
+  jsonRequest  :: forall req eff. (HasExample req) => e (Source eff (Either ServiceError req))
+  jsonResponse :: forall res eff. (HasExample res) => e (Sink eff res)
   optional     :: forall a. e a -> e (Maybe a)
   comments     :: String -> e Unit
 
@@ -125,10 +130,10 @@ delete :: forall e. (Endpoint e) => e Unit
 delete = method "DELETE"
 
 -- | Create a `Service` which renders HTML content.
-htmlResponse :: forall e eff. (Endpoint e) => e (Client eff Markup)
+htmlResponse :: forall e eff. (Endpoint e) => e (Sink eff Markup)
 htmlResponse = map toClient response
   where
-  toClient :: Node.Response -> Client eff Markup
+  toClient :: Node.Response -> Sink eff Markup
   toClient res = sendResponse res 200 "text/html" <<< render
 
 -- | Serve static HTML in the response body.

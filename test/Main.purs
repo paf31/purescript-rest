@@ -4,7 +4,6 @@ import Prelude
 
 import Data.Maybe
 import Data.Either
-import Data.Functor (($>))
 import Data.Foreign
 import Data.Foreign.Class
 import Data.String (toUpper, null)
@@ -14,8 +13,6 @@ import Control.Monad.Eff
 import Control.Monad.Eff.Console
 
 import qualified Node.HTTP        as Node
-import qualified Node.Encoding    as Node
-import qualified Node.Stream      as Node
 
 import REST.Endpoint
 import REST.Server
@@ -24,9 +21,11 @@ import REST.Docs
 import qualified Text.Smolder.HTML                as H
 import qualified Text.Smolder.HTML.Attributes     as A
 import Text.Smolder.Markup (Markup(), (!), text)
-import Text.Smolder.Renderer.String (render)
 
 data Echo = Echo String
+
+runEcho :: Echo -> String
+runEcho (Echo s) = s
 
 instance echoIsForeign :: IsForeign Echo where
   read f = Echo <$> readProp "text" f
@@ -43,17 +42,23 @@ home = worker <$> (get *> response)
   worker res = sendResponse res 200 "text/plain" "Hello, world!"
 
 echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
-echo = worker <$> (docs *> post *> lit "echo" *> optional shout) <*> jsonRequest <*> jsonResponse
+echo = worker <$> (docs *> post *> lit "echo" *> optional shoutHeader) <*> jsonRequest <*> jsonResponse <*> response
   where
-  worker :: Maybe String -> Echo -> (Echo -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit
-  worker (Just h) (Echo s) k | not (null h) = k (Echo (toUpper s))
-  worker _ e k = k e
+  worker :: Maybe String -> Source eff (Either ServiceError Echo) -> Sink eff Echo -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
+  worker shout source sink res = do
+    source \e ->
+      case e of
+        Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
+        Right (Echo s) -> sink <<< Echo $
+          case shout of
+            Just h | not (null h) -> toUpper s
+            _ -> s
 
   docs :: e Unit
   docs = comments "Echos the request body in the response body."
 
-  shout :: forall e. (Endpoint e) => e String
-  shout = header "X-Shout" "This header should be non-empty if the result should be capitalized."
+  shoutHeader :: forall e. (Endpoint e) => e String
+  shoutHeader = header "X-Shout" "This header should be non-empty if the result should be capitalized."
 
 endpoints :: forall e eff. (Endpoint e) => Array (e (Eff (http :: Node.HTTP | eff) Unit))
 endpoints = [ home, echo ]
@@ -68,6 +73,11 @@ template body = do
     H.body do
       H.div ! A.className "container" $ body
 
+main :: forall e. Eff ( http :: Node.HTTP
+                      , console :: CONSOLE
+                      | e
+                      )
+                      Unit
 main = do
   log "The API tester is configured to send requests to localhost:9000/api."
   log "To avoid CORS issues in the browser, you should forward requests from port 9000 to 8080/8081 accordingly."

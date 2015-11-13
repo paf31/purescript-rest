@@ -58,13 +58,21 @@ class (AsForeign a) <= HasExample a where
 
 A class for types which have examples.
 
-#### `Client`
+#### `Sink`
 
 ``` purescript
-type Client eff res = res -> Eff (http :: HTTP | eff) Unit
+type Sink eff res = res -> Eff (http :: HTTP | eff) Unit
 ```
 
-A `Client` receives a typed response from a service.
+A `Sink` receives a response.
+
+#### `Source`
+
+``` purescript
+type Source eff req = (req -> Eff (http :: HTTP | eff) Unit) -> Eff (http :: HTTP | eff) Unit
+```
+
+A `Source` provides a request asynchronously.
 
 #### `ServiceError`
 
@@ -86,8 +94,8 @@ class (Applicative e) <= Endpoint e where
   header :: String -> Comments -> e String
   request :: e Request
   response :: e Response
-  jsonRequest :: forall req. (HasExample req) => e req
-  jsonResponse :: forall res eff. (HasExample res) => e (Client eff res)
+  jsonRequest :: forall req eff. (HasExample req) => e (Source eff (Either ServiceError req))
+  jsonResponse :: forall res eff. (HasExample res) => e (Sink eff res)
   optional :: forall a. e a -> e (Maybe a)
   comments :: String -> e Unit
 ```
@@ -140,7 +148,7 @@ Specify a `DELETE` endpoint.
 #### `htmlResponse`
 
 ``` purescript
-htmlResponse :: forall e eff. (Endpoint e) => e (Client eff Markup)
+htmlResponse :: forall e eff. (Endpoint e) => e (Sink eff Markup)
 ```
 
 Create a `Service` which renders HTML content.

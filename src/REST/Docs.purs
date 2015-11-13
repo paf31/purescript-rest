@@ -15,6 +15,7 @@ import Prelude
 
 import Data.Maybe
 import Data.Tuple
+import Data.Either
 import Data.Monoid
 import Data.Functor (($>))
 import Data.Function (on)
@@ -292,10 +293,10 @@ instance endpointDocs :: Endpoint (Docs eff) where
   comments s          = Docs (Document (emptyDoc { comments = Just s }))
                              (pure unit)
 
-requestDocs :: forall eff req. (HasExample req) => Docs eff req
+requestDocs :: forall eff eff1 req. (HasExample req) => Docs eff (Source eff1 (Either ServiceError req))
 requestDocs = Docs (Document (emptyDoc { request = Just (asForeign (example :: req)) })) (pure unit)
 
-responseDocs :: forall eff eff1 res. (HasExample res) => Docs eff (Client eff1 res)
+responseDocs :: forall eff eff1 res. (HasExample res) => Docs eff (Sink eff1 res)
 responseDocs = Docs (Document (emptyDoc { response = Just (asForeign (example :: res)) })) (pure unit)
 
 -- | Generate documentation for an `Endpoint` specification.

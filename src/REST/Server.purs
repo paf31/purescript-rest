@@ -97,18 +97,20 @@ instance endpointServer :: Endpoint (Server eff) where
   request    = Server \req _ r k -> k $ Just $ Right (Tuple r req)
   response   = Server \_ res r k -> k $ Just $ Right (Tuple r res)
   jsonRequest = Server \req res r k -> do
-    let requestStream = Node.requestAsStream req
-    Node.setEncoding requestStream Node.UTF8
-    bodyRef <- unsafeRunRef $ newRef ""
-    Node.onData requestStream \s -> do
-      unsafeRunRef $ modifyRef bodyRef (<> s)
-    Node.onError requestStream do
-      k (Just (Left (ServiceError 500 "Internal server error")))
-    Node.onEnd requestStream do
-      body <- unsafeRunRef $ readRef bodyRef
-      case readJSON body of
-        Right a -> k (Just (Right (Tuple r a)))
-        Left err -> k (Just (Left (ServiceError 400 ("Bad request" <> show err))))
+    let receive respond = do
+          let requestStream = Node.requestAsStream req
+          Node.setEncoding requestStream Node.UTF8
+          bodyRef <- unsafeRunRef $ newRef ""
+          Node.onData requestStream \s -> do
+            unsafeRunRef $ modifyRef bodyRef (<> s)
+          Node.onError requestStream do
+            respond (Left (ServiceError 500 "Internal server error"))
+          Node.onEnd requestStream do
+            body <- unsafeRunRef $ readRef bodyRef
+            case readJSON body of
+              Right a -> respond (Right a)
+              Left _ -> respond (Left (ServiceError 400 "Bad request"))
+    k (Just (Right (Tuple r receive)))
   jsonResponse = Server \req res r k -> do
     let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
     k (Just (Right (Tuple r respond)))
