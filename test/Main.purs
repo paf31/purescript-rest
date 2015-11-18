@@ -2,11 +2,10 @@ module Test.Main where
 
 import Prelude
 
-import Data.Maybe
 import Data.Either
-import Data.Foreign
-import Data.Foreign.Class
+import Data.Foreign.Generic
 import Data.String (toUpper)
+import Data.Generic
 
 import Control.Apply
 import Control.Monad.Eff
@@ -22,19 +21,15 @@ import qualified Text.Smolder.HTML                as H
 import qualified Text.Smolder.HTML.Attributes     as A
 import Text.Smolder.Markup (Markup(), (!), text)
 
-data Echo = Echo String
+newtype Echo = Echo { message :: String }
 
-runEcho :: Echo -> String
+runEcho :: Echo -> { message :: String }
 runEcho (Echo s) = s
 
-instance echoIsForeign :: IsForeign Echo where
-  read f = Echo <$> readProp "text" f
-
-instance echoAsForeign :: AsForeign Echo where
-  asForeign (Echo text) = toForeign { text: text }
+derive instance genericEcho :: Generic Echo
 
 instance echoHasExample :: HasExample Echo where
-  example = Echo "Hello, World!"
+  example = Echo { message: "Hello, World!" }
 
 home :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
 home = worker <$> (get *> response)
@@ -51,14 +46,14 @@ echo = worker <$> (docs *> post *> lit "echo" *> shoutHeader) <*> jsonRequest <*
         Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
         Right (Echo s) -> sink <<< Echo $
           case shout of
-            "yes" -> toUpper s
+            "yes" -> { message: toUpper s.message }
             _ -> s
 
   docs :: e Unit
   docs = comments "Echos the request body in the response body."
 
   shoutHeader :: (Endpoint e) => e String
-  shoutHeader = header "X-Shout" "This header should be non-empty if the result should be capitalized."
+  shoutHeader = header "X-Shout" "This header should equal 'yes' if the result should be capitalized."
 
 endpoints :: forall e eff. (Endpoint e) => Array (e (Eff (http :: Node.HTTP | eff) Unit))
 endpoints = [ home, echo ]
@@ -73,6 +68,9 @@ template body = do
     H.body do
       H.div ! A.className "container" $ body
 
+jsonOpts :: Options
+jsonOpts = defaultOptions { unwrapNewtypes = true }
+
 main :: forall e. Eff ( http :: Node.HTTP
                       , console :: CONSOLE
                       | e
@@ -81,7 +79,7 @@ main :: forall e. Eff ( http :: Node.HTTP
 main = do
   log "The API tester is configured to send requests to localhost:9000/api."
   log "To avoid CORS issues in the browser, you should forward requests from port 9000 to 8080/8081 accordingly."
-  serve endpoints 8080 do
+  serve jsonOpts endpoints 8080 do
     log "Listening on port 8080."
-  serveDocs "http://localhost:9000/api" endpoints template 8081 do
+  serveDocs jsonOpts "http://localhost:9000/api" endpoints template 8081 do
     log "Serving docs on port 8081."

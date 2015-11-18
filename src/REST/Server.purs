@@ -14,7 +14,7 @@ import Data.Monoid
 import Data.Nullable (toMaybe)
 import Data.String (split, null)
 import Data.Foreign (Foreign(), readString, readArray)
-import Data.Foreign.Class (IsForeign, readJSON)
+import Data.Foreign.Generic (Options(), toJSONGeneric, readJSONGeneric)
 import Data.Foldable (Foldable)
 import Data.Traversable (traverse)
 
@@ -72,37 +72,37 @@ instance functorServerResult :: Functor ServerResult where
 -- |
 -- | The `Endpoint` instance for `Service` can be used to connect a specification to
 -- | a server implementation, with `serve`.
-data Server a = Server (Node.Request -> Node.Response -> ParsedRequest -> Maybe (ServerResult a))
+data Server a = Server (Options -> Node.Request -> Node.Response -> ParsedRequest -> Maybe (ServerResult a))
 
 instance functorServer :: Functor Server where
-  map f (Server s) = Server \req res r -> map (map f) (s req res r)
+  map f (Server s) = Server \o req res r -> map (map f) (s o req res r)
 
 instance applyServer :: Apply Server where
-  apply (Server f) (Server a) = Server \req res r0 ->
-    case f req res r0 of
-      Just (ServerResult r1 f') -> map (\(ServerResult r2 a') -> ServerResult r2 (apply f' a')) (a req res r1)
+  apply (Server f) (Server a) = Server \o req res r0 ->
+    case f o req res r0 of
+      Just (ServerResult r1 f') -> map (\(ServerResult r2 a') -> ServerResult r2 (apply f' a')) (a o req res r1)
       Nothing -> Nothing
 
 instance applicativeServer :: Applicative Server where
-  pure a = Server \_ _ r -> Just (ServerResult r (Right a))
+  pure a = Server \_ _ _ r -> Just (ServerResult r (Right a))
 
 instance endpointServer :: Endpoint Server where
-  method m   = Server \_ _ r -> Just (ServerResult r (if m == r.method then Right unit else Left (ServiceError 405 "Method not allowed")))
-  lit s      = Server \_ _ r -> case r.route of
-                                  L.Cons hd tl | s == hd -> Just (ServerResult (r { route = tl }) (Right unit))
-                                  _ -> Nothing
-  match _ _  = Server \_ _ r -> case r.route of
-                                  L.Cons hd tl -> Just (ServerResult (r { route = tl }) (Right hd))
-                                  _ -> Nothing
-  query q _  = Server \_ _ r -> case S.lookup q r.query of
-                                  Nothing -> Just (ServerResult r (Left (ServiceError 400 ("Missing required query parameter " <> show q))))
-                                  Just a -> Just (ServerResult r (Right a))
-  header h _ = Server \_ _ r -> case S.lookup (Data.String.toLower h) r.headers of
-                                  Nothing -> Just (ServerResult r (Left (ServiceError 400 ("Missing required header " <> show h))))
-                                  Just a -> Just (ServerResult r (Right a))
-  request    = Server \req _ r -> Just (ServerResult r (Right req))
-  response   = Server \_ res r -> Just (ServerResult r (Right res))
-  jsonRequest = Server \req res r ->
+  method m   = Server \_ _ _ r -> Just (ServerResult r (if m == r.method then Right unit else Left (ServiceError 405 "Method not allowed")))
+  lit s      = Server \_ _ _ r -> case r.route of
+                                    L.Cons hd tl | s == hd -> Just (ServerResult (r { route = tl }) (Right unit))
+                                    _ -> Nothing
+  match _ _  = Server \_ _ _ r -> case r.route of
+                                    L.Cons hd tl -> Just (ServerResult (r { route = tl }) (Right hd))
+                                    _ -> Nothing
+  query q _  = Server \_ _ _ r -> case S.lookup q r.query of
+                                    Nothing -> Just (ServerResult r (Left (ServiceError 400 ("Missing required query parameter " <> show q))))
+                                    Just a -> Just (ServerResult r (Right a))
+  header h _ = Server \_ _ _ r -> case S.lookup (Data.String.toLower h) r.headers of
+                                    Nothing -> Just (ServerResult r (Left (ServiceError 400 ("Missing required header " <> show h))))
+                                    Just a -> Just (ServerResult r (Right a))
+  request    = Server \_ req _ r -> Just (ServerResult r (Right req))
+  response   = Server \_ _ res r -> Just (ServerResult r (Right res))
+  jsonRequest = Server \opts req res r ->
     let receive respond = do
           let requestStream = Node.requestAsStream req
           Node.setEncoding requestStream Node.UTF8
@@ -113,15 +113,15 @@ instance endpointServer :: Endpoint Server where
             respond (Left (ServiceError 500 "Internal server error"))
           Node.onEnd requestStream do
             body <- unsafeRunRef $ readRef bodyRef
-            case readJSON body of
+            case readJSONGeneric opts body of
               Right a -> respond (Right a)
               Left _ -> respond (Left (ServiceError 400 "Bad request"))
     in Just (ServerResult r (Right receive))
-  jsonResponse = Server \req res r ->
-    let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
+  jsonResponse = Server \opts req res r ->
+    let respond = sendResponse res 200 "application/json" <<< toJSONGeneric opts
     in Just (ServerResult r (Right respond))
-  optional (Server s) = Server \req res r -> Just $
-                          case s req res r of
+  optional (Server s) = Server \o req res r -> Just $
+                          case s o req res r of
                             Just (ServerResult r1 (Right a)) -> ServerResult r1 (Right (Just a))
                             Just (ServerResult r1 _) -> ServerResult r1 (Right Nothing)
                             Nothing -> ServerResult r (Right Nothing)
@@ -130,18 +130,19 @@ instance endpointServer :: Endpoint Server where
 -- | Serve a set of endpoints on the specified port.
 serve :: forall f eff.
   (Foldable f) =>
+  Options ->
   f (Server (Eff (http :: Node.HTTP | eff) Unit)) ->
   Int ->
   Eff (http :: Node.HTTP | eff) Unit ->
   Eff (http :: Node.HTTP | eff) Unit
-serve endpoints port callback = do
+serve opts endpoints port callback = do
   server <- Node.createServer respond
   Node.listen server port callback
   where
   respond :: Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
   respond req res = do
     let pr = parseRequest req
-    case firstSuccess (L.mapMaybe (\(Server f) -> f req res pr >>= ensureEOL) (L.toList endpoints)) of
+    case firstSuccess (L.mapMaybe (\(Server f) -> f opts req res pr >>= ensureEOL) (L.toList endpoints)) of
       Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
       Right impl -> impl
 

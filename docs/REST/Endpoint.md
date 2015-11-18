@@ -21,38 +21,10 @@ type Comments = String
 
 A comment string
 
-#### `AsForeign`
-
-``` purescript
-class (IsForeign a) <= AsForeign a where
-  asForeign :: a -> Foreign
-```
-
-The `AsForeign` class extends `IsForeign` so that data types can be _serialized_ back to
-foreign values.
-
-`read` and `asForeign` should be almost-inverse:
-
-- `read <<< asForeign = pure`
-- `read <<< asForeign <=< read = read`
-
-##### Instances
-``` purescript
-(AsForeign a) => AsForeign (Array a)
-```
-
-#### `Example`
-
-``` purescript
-type Example = Foreign
-```
-
-An example of a request or response.
-
 #### `HasExample`
 
 ``` purescript
-class (AsForeign a) <= HasExample a where
+class HasExample a where
   example :: a
 ```
 
@@ -94,8 +66,8 @@ class (Applicative e) <= Endpoint e where
   header :: String -> Comments -> e String
   request :: e Request
   response :: e Response
-  jsonRequest :: forall req eff. (HasExample req) => e (Source eff (Either ServiceError req))
-  jsonResponse :: forall res eff. (HasExample res) => e (Sink eff res)
+  jsonRequest :: forall req eff. (Generic req, HasExample req) => e (Source eff (Either ServiceError req))
+  jsonResponse :: forall res eff. (Generic res, HasExample res) => e (Sink eff res)
   optional :: forall a. e a -> e (Maybe a)
   comments :: String -> e Unit
 ```

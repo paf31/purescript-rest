@@ -24,7 +24,7 @@ Endpoint Server
 #### `serve`
 
 ``` purescript
-serve :: forall f eff. (Foldable f) => f (Server (Eff (http :: HTTP | eff) Unit)) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
+serve :: forall f eff. (Foldable f) => Options -> f (Server (Eff (http :: HTTP | eff) Unit)) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
 ```
 
 Serve a set of endpoints on the specified port.

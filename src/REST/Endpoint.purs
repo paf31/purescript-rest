@@ -2,10 +2,7 @@
 -- | REST endpoints, independent of their implementation.
 
 module REST.Endpoint
-   ( AsForeign
-   , asForeign
-   , Example()
-   , HasExample
+   ( HasExample
    , example
    , ServiceError(..)
    , Endpoint
@@ -39,6 +36,7 @@ import Data.Maybe
 import Data.Either
 import Data.Foreign
 import Data.Foreign.Class
+import Data.Generic
 
 import Control.Monad.Eff
 
@@ -59,24 +57,8 @@ type Hint = String
 -- | A comment string
 type Comments = String
 
--- | The `AsForeign` class extends `IsForeign` so that data types can be _serialized_ back to
--- | foreign values.
--- |
--- | `read` and `asForeign` should be almost-inverse:
--- |
--- | - `read <<< asForeign = pure`
--- | - `read <<< asForeign <=< read = read`
-class (IsForeign a) <= AsForeign a where
-  asForeign :: a -> Foreign
-
-instance arrayAsForeign :: (AsForeign a) => AsForeign (Array a) where
-  asForeign = toForeign <<< map asForeign
-
--- | An example of a request or response.
-type Example = Foreign
-
 -- | A class for types which have examples.
-class (AsForeign a) <= HasExample a where
+class HasExample a where
   example :: a
 
 -- | A `Sink` receives a response.
@@ -108,8 +90,8 @@ class (Applicative e) <= Endpoint e where
   header       :: String -> Comments -> e String
   request      :: e Node.Request
   response     :: e Node.Response
-  jsonRequest  :: forall req eff. (HasExample req) => e (Source eff (Either ServiceError req))
-  jsonResponse :: forall res eff. (HasExample res) => e (Sink eff res)
+  jsonRequest  :: forall req eff. (Generic req, HasExample req) => e (Source eff (Either ServiceError req))
+  jsonResponse :: forall res eff. (Generic res, HasExample res) => e (Sink eff res)
   optional     :: forall a. e a -> e (Maybe a)
   comments     :: String -> e Unit
 

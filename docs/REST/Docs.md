@@ -7,7 +7,7 @@ for an `Endpoint` specification.
 
 ``` purescript
 newtype Document
-  = Document { comments :: Maybe Comments, method :: Maybe String, route :: List RoutePart, queryArgs :: List Arg, headers :: List Arg, request :: Maybe Example, response :: Maybe Example }
+  = Document { comments :: Maybe Comments, method :: Maybe String, route :: List RoutePart, queryArgs :: List Arg, headers :: List Arg, request :: Maybe Foreign, response :: Maybe Foreign }
 ```
 
 The documentation data structure.
@@ -42,7 +42,7 @@ An `Arg` represents an argument matched by a query argument or header.
 #### `documentToMarkup`
 
 ``` purescript
-documentToMarkup :: forall any. String -> Docs any -> Markup
+documentToMarkup :: String -> Document -> Markup
 ```
 
 Render a `Document` as a HTML string.
@@ -71,7 +71,7 @@ Endpoint Docs
 #### `generateDocs`
 
 ``` purescript
-generateDocs :: forall a. Docs a -> Document
+generateDocs :: forall a. Options -> Docs a -> Document
 ```
 
 Generate documentation for an `Endpoint` specification.
@@ -79,7 +79,7 @@ Generate documentation for an `Endpoint` specification.
 #### `serveDocs`
 
 ``` purescript
-serveDocs :: forall f eff any. (Functor f, Foldable f) => String -> f (Docs any) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
+serveDocs :: forall f eff any. (Functor f, Foldable f) => Options -> String -> f (Docs any) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
 ```
 
 Serve documentation for a set of `Endpoint` specifications on the specified port.

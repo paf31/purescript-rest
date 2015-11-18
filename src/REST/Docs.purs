@@ -19,7 +19,10 @@ import Data.Either
 import Data.Monoid
 import Data.Functor (($>))
 import Data.Function (on)
+import Data.Generic
+import Data.Foreign (Foreign())
 import Data.Foldable (Foldable, foldMap, for_, intercalate)
+import Data.Foreign.Generic (Options(), toForeignGeneric)
 
 import qualified Data.List as L
 
@@ -48,8 +51,8 @@ newtype Document = Document
   , route     :: L.List RoutePart
   , queryArgs :: L.List Arg
   , headers   :: L.List Arg
-  , request   :: Maybe Example
-  , response  :: Maybe Example
+  , request   :: Maybe Foreign
+  , response  :: Maybe Foreign
   }
 
 -- | A `RoutePart` represents part of an endpoint route.
@@ -66,8 +69,8 @@ newtype Arg = Arg
 emptyDoc ::
   { comments  :: Maybe Comments
   , method    :: Maybe String
-  , request   :: Maybe Example
-  , response  :: Maybe Example
+  , request   :: Maybe Foreign
+  , response  :: Maybe Foreign
   , route     :: L.List RoutePart
   , queryArgs :: L.List Arg
   , headers   :: L.List Arg
@@ -99,8 +102,8 @@ instance monoidDocument :: Monoid Document where
 -- | Render a `Document` as a HTML string.
 -- |
 -- | The base URL for the running service should be provided in the first argument.
-documentToMarkup :: forall any. String -> Docs any -> Markup
-documentToMarkup baseURL (Docs (Document d) _) = do
+documentToMarkup :: String -> Document -> Markup
+documentToMarkup baseURL (Document d) = do
   H.h1 $ text title
   for_ d.comments (H.p <<< text)
   let routeArgs = L.mapMaybe routePartToArg d.route
@@ -263,59 +266,62 @@ generateTOC docs = do
 -- |
 -- | The `Endpoint` instance for `Docs` can be used to generate documentation
 -- | for a specification, using `generateDocs`, or `serveDocs`.
-data Docs a = Docs Document (Server Unit)
+data Docs a = Docs (Options -> Document) (Server Unit)
 
 instance functorDocs :: Functor Docs where
   map _ (Docs d s) = Docs d s
 
 instance applyDocs :: Apply Docs where
-  apply (Docs d1 s1) (Docs d2 s2) = Docs (d1 <> d2) (s1 *> s2)
+  apply (Docs d1 s1) (Docs d2 s2) = Docs (\opts -> d1 opts <> d2 opts) (s1 *> s2)
 
 instance applicativeDocs :: Applicative Docs where
-  pure _ = Docs mempty (pure unit)
+  pure _ = Docs (\_ -> mempty) (pure unit)
 
 instance endpointDocs :: Endpoint Docs where
-  method m            = Docs (Document (emptyDoc { method = Just m }))
+  method m            = Docs (\_ -> Document (emptyDoc { method = Just m }))
                              (pure unit)
-  lit s               = Docs (Document (emptyDoc { route = L.singleton (LiteralPart s) }))
+  lit s               = Docs (\_ -> Document (emptyDoc { route = L.singleton (LiteralPart s) }))
                              (lit s)
-  match hint comments = Docs (Document (emptyDoc { route = L.singleton (MatchPart (Arg { key: hint, comments: comments })) }))
+  match hint comments = Docs (\_ -> Document (emptyDoc { route = L.singleton (MatchPart (Arg { key: hint, comments: comments })) }))
                              (lit "_")
-  query key comments  = Docs (Document (emptyDoc { queryArgs = L.singleton (Arg { key: key, comments: comments }) }))
+  query key comments  = Docs (\_ -> Document (emptyDoc { queryArgs = L.singleton (Arg { key: key, comments: comments }) }))
                              (pure unit)
-  header key comments = Docs (Document (emptyDoc { headers = L.singleton (Arg { key: key, comments: comments }) }))
+  header key comments = Docs (\_ -> Document (emptyDoc { headers = L.singleton (Arg { key: key, comments: comments }) }))
                              (pure unit)
-  request             = Docs (Document emptyDoc) (pure unit)
-  response            = Docs (Document emptyDoc) (pure unit)
+  request             = Docs (\_ -> Document emptyDoc) (pure unit)
+  response            = Docs (\_ -> Document emptyDoc) (pure unit)
   jsonRequest         = requestDocs
   jsonResponse        = responseDocs
   optional            = map Just
-  comments s          = Docs (Document (emptyDoc { comments = Just s }))
+  comments s          = Docs (\_ -> Document (emptyDoc { comments = Just s }))
                              (pure unit)
 
-requestDocs :: forall eff req. (HasExample req) => Docs (Source eff (Either ServiceError req))
-requestDocs = Docs (Document (emptyDoc { request = Just (asForeign (example :: req)) })) (pure unit)
+requestDocs :: forall eff req. (Generic req, HasExample req) => Docs (Source eff (Either ServiceError req))
+requestDocs = Docs (\opts -> Document (emptyDoc { request = Just (toForeignGeneric opts (example :: req)) })) (pure unit)
 
-responseDocs :: forall eff res. (HasExample res) => Docs (Sink eff res)
-responseDocs = Docs (Document (emptyDoc { response = Just (asForeign (example :: res)) })) (pure unit)
+responseDocs :: forall eff res. (Generic res, HasExample res) => Docs (Sink eff res)
+responseDocs = Docs (\opts -> Document (emptyDoc { response = Just (toForeignGeneric opts (example :: res)) })) (pure unit)
 
 -- | Generate documentation for an `Endpoint` specification.
-generateDocs :: forall a. Docs a -> Document
-generateDocs (Docs d _) = d
+generateDocs :: forall a. Options -> Docs a -> Document
+generateDocs opts (Docs d _) = d opts
 
 -- | Serve documentation for a set of `Endpoint` specifications on the specified port.
 serveDocs :: forall f eff any.
   (Functor f, Foldable f) =>
+  Options ->
   String ->
   f (Docs any) ->
   (Markup -> Markup) ->
   Int ->
   Eff (http :: Node.HTTP | eff) Unit ->
   Eff (http :: Node.HTTP | eff) Unit
-serveDocs baseURL endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
+serveDocs opts baseURL endpoints wrap = serve opts (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
   where
   toServer :: Docs any -> Server (Eff (http :: Node.HTTP | eff) Unit)
-  toServer s@(Docs (Document d) server) = staticHtmlResponse (lit "endpoint" *> lit (fromMaybe "GET" d.method) *> server $> wrap (documentToMarkup baseURL s))
+  toServer (Docs f server) =
+    case f opts of
+      d@(Document o) -> staticHtmlResponse (lit "endpoint" *> lit (fromMaybe "GET" o.method) *> server $> wrap (documentToMarkup baseURL d))
 
   tocEndpoint :: Server (Eff (http :: Node.HTTP | eff) Unit)
-  tocEndpoint = staticHtmlResponse (get $> wrap (generateTOC (map generateDocs (L.toList endpoints))))
+  tocEndpoint = staticHtmlResponse (get $> wrap (generateTOC (map (generateDocs opts) (L.toList endpoints))))
