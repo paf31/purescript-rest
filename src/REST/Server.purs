@@ -139,7 +139,12 @@ serve endpoints port callback = do
   Node.listen server port callback
   where
   respond :: Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
-  respond req res = try (parseRequest req) (L.toList endpoints)
+  respond req res = do
+    let pr = parseRequest req
+    case firstSuccess (L.mapMaybe (\(Server f) -> f req res pr >>= ensureEOL) (L.toList endpoints)) of
+      Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
+      Right impl -> impl
+
     where
     -- Ensure all route parts were matched
     ensureEOL :: forall a. ServerResult a -> Maybe (Either ServiceError a)
@@ -147,15 +152,8 @@ serve endpoints port callback = do
     ensureEOL _ = Nothing
 
     -- Try each endpoint in order
-    try :: ParsedRequest ->
-           L.List (Server (Eff (http :: Node.HTTP | eff) Unit)) ->
-           Eff (http :: Node.HTTP | eff) Unit
-    try _ L.Nil = sendResponse res 404 "text/plain" "No matching endpoint"
-    try preq (L.Cons (Server s) rest) =
-      case s req res preq of
-        Nothing -> try preq rest
-        Just result ->
-          case ensureEOL result of
-            Nothing -> try preq rest
-            Just (Left (ServiceError code msg)) -> sendResponse res code "text/plain" msg
-            Just (Right impl) -> impl
+    firstSuccess :: forall a. L.List (Either ServiceError a) -> Either ServiceError a
+    firstSuccess L.Nil = Left (ServiceError 404 "No matching endpoint")
+    firstSuccess (L.Cons (Left err) L.Nil) = Left err
+    firstSuccess (L.Cons (Left _) rest) = firstSuccess rest
+    firstSuccess (L.Cons (Right a) _) = Right a
