@@ -6,7 +6,7 @@ import Data.Maybe
 import Data.Either
 import Data.Foreign
 import Data.Foreign.Class
-import Data.String (toUpper, null)
+import Data.String (toUpper)
 
 import Control.Apply
 import Control.Monad.Eff
@@ -42,16 +42,16 @@ home = worker <$> (get *> response)
   worker res = sendResponse res 200 "text/plain" "Hello, world!"
 
 echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
-echo = worker <$> (docs *> post *> lit "echo" *> optional shoutHeader) <*> jsonRequest <*> jsonResponse <*> response
+echo = worker <$> (docs *> post *> lit "echo" *> shoutHeader) <*> jsonRequest <*> jsonResponse <*> response
   where
-  worker :: Maybe String -> Source eff (Either ServiceError Echo) -> Sink eff Echo -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
+  worker :: String -> Source eff (Either ServiceError Echo) -> Sink eff Echo -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
   worker shout source sink res = do
     source \e ->
       case e of
         Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
         Right (Echo s) -> sink <<< Echo $
           case shout of
-            Just h | not (null h) -> toUpper s
+            "yes" -> toUpper s
             _ -> s
 
   docs :: e Unit

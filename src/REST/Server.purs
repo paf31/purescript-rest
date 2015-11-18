@@ -62,11 +62,17 @@ parseQueryObject = map readStrings <<< queryAsStrMap
   readStrings :: Foreign -> L.List String
   readStrings f = either (const L.Nil) id $ map L.toList (readArray f >>= traverse readString) <|> (L.singleton <$> readString f)
 
+-- | The result of parsing a request
+data ServerResult a = ServerResult ParsedRequest (Either ServiceError a)
+
+instance functorServerResult :: Functor ServerResult where
+  map f (ServerResult r a) = ServerResult r (map f a)
+
 -- | An implementation of a REST service.
 -- |
 -- | The `Endpoint` instance for `Service` can be used to connect a specification to
 -- | a server implementation, with `serve`.
-data Server a = Server (Node.Request -> Node.Response -> ParsedRequest -> Maybe (Tuple ParsedRequest a))
+data Server a = Server (Node.Request -> Node.Response -> ParsedRequest -> Maybe (ServerResult a))
 
 instance functorServer :: Functor Server where
   map f (Server s) = Server \req res r -> map (map f) (s req res r)
@@ -74,26 +80,28 @@ instance functorServer :: Functor Server where
 instance applyServer :: Apply Server where
   apply (Server f) (Server a) = Server \req res r0 ->
     case f req res r0 of
-      Just (Tuple r1 f') -> map (map f') (a req res r1)
+      Just (ServerResult r1 f') -> map (\(ServerResult r2 a') -> ServerResult r2 (apply f' a')) (a req res r1)
       Nothing -> Nothing
 
 instance applicativeServer :: Applicative Server where
-  pure a = Server \_ _ r -> Just (Tuple r a)
+  pure a = Server \_ _ r -> Just (ServerResult r (Right a))
 
 instance endpointServer :: Endpoint Server where
-  method m   = Server \_ _ r -> if m == r.method
-                                  then Just (Tuple r unit)
-                                  else Nothing
+  method m   = Server \_ _ r -> Just (ServerResult r (if m == r.method then Right unit else Left (ServiceError 405 "Method not allowed")))
   lit s      = Server \_ _ r -> case r.route of
-                                  L.Cons hd tl | s == hd -> Just (Tuple (r { route = tl }) unit)
+                                  L.Cons hd tl | s == hd -> Just (ServerResult (r { route = tl }) (Right unit))
                                   _ -> Nothing
   match _ _  = Server \_ _ r -> case r.route of
-                                  L.Cons hd tl -> Just (Tuple (r { route = tl }) hd)
+                                  L.Cons hd tl -> Just (ServerResult (r { route = tl }) (Right hd))
                                   _ -> Nothing
-  query q _  = Server \_ _ r -> map (Tuple r) (S.lookup q r.query)
-  header h _ = Server \_ _ r -> map (Tuple r) (S.lookup (Data.String.toLower h) r.headers)
-  request    = Server \req _ r -> Just $ Tuple r req
-  response   = Server \_ res r -> Just $ Tuple r res
+  query q _  = Server \_ _ r -> case S.lookup q r.query of
+                                  Nothing -> Just (ServerResult r (Left (ServiceError 400 ("Missing required query parameter " <> show q))))
+                                  Just a -> Just (ServerResult r (Right a))
+  header h _ = Server \_ _ r -> case S.lookup (Data.String.toLower h) r.headers of
+                                  Nothing -> Just (ServerResult r (Left (ServiceError 400 ("Missing required header " <> show h))))
+                                  Just a -> Just (ServerResult r (Right a))
+  request    = Server \req _ r -> Just (ServerResult r (Right req))
+  response   = Server \_ res r -> Just (ServerResult r (Right res))
   jsonRequest = Server \req res r ->
     let receive respond = do
           let requestStream = Node.requestAsStream req
@@ -108,14 +116,15 @@ instance endpointServer :: Endpoint Server where
             case readJSON body of
               Right a -> respond (Right a)
               Left _ -> respond (Left (ServiceError 400 "Bad request"))
-    in Just (Tuple r receive)
+    in Just (ServerResult r (Right receive))
   jsonResponse = Server \req res r ->
     let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
-    in Just (Tuple r respond)
-  optional (Server s) = Server \req res r ->
+    in Just (ServerResult r (Right respond))
+  optional (Server s) = Server \req res r -> Just $
                           case s req res r of
-                            Nothing -> Just (Tuple r Nothing)
-                            Just e -> Just (map Just e)
+                            Just (ServerResult r1 (Right a)) -> ServerResult r1 (Right (Just a))
+                            Just (ServerResult r1 _) -> ServerResult r1 (Right Nothing)
+                            Nothing -> ServerResult r (Right Nothing)
   comments _ = pure unit
 
 -- | Serve a set of endpoints on the specified port.
@@ -133,8 +142,8 @@ serve endpoints port callback = do
   respond req res = try (parseRequest req) (L.toList endpoints)
     where
     -- Ensure all route parts were matched
-    ensureEOL :: forall a. Tuple ParsedRequest a -> Maybe a
-    ensureEOL (Tuple { route: L.Nil } a) = return a
+    ensureEOL :: forall a. ServerResult a -> Maybe (Either ServiceError a)
+    ensureEOL (ServerResult { route: L.Nil } e) = Just e
     ensureEOL _ = Nothing
 
     -- Try each endpoint in order
@@ -145,8 +154,8 @@ serve endpoints port callback = do
     try preq (L.Cons (Server s) rest) =
       case s req res preq of
         Nothing -> try preq rest
-        --Just (Left (ServiceError code msg)) -> sendResponse res code "text/plain" msg
-        Just impl ->
-          case ensureEOL impl of
+        Just result ->
+          case ensureEOL result of
             Nothing -> try preq rest
-            Just impl -> impl
+            Just (Left (ServiceError code msg)) -> sendResponse res code "text/plain" msg
+            Just (Right impl) -> impl
