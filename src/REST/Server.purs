@@ -66,35 +66,34 @@ parseQueryObject = map readStrings <<< queryAsStrMap
 -- |
 -- | The `Endpoint` instance for `Service` can be used to connect a specification to
 -- | a server implementation, with `serve`.
-data Server a = Server (Node.Request -> Node.Response -> ParsedRequest -> Maybe (Either ServiceError (Tuple ParsedRequest a)))
+data Server a = Server (Node.Request -> Node.Response -> ParsedRequest -> Maybe (Tuple ParsedRequest a))
 
 instance functorServer :: Functor Server where
-  map f (Server s) = Server \req res r -> map (map (map f)) (s req res r)
+  map f (Server s) = Server \req res r -> map (map f) (s req res r)
 
 instance applyServer :: Apply Server where
   apply (Server f) (Server a) = Server \req res r0 ->
     case f req res r0 of
-      Just (Left err) -> Just (Left err)
-      Just (Right (Tuple r1 f')) -> map (map (map f')) (a req res r1)
+      Just (Tuple r1 f') -> map (map f') (a req res r1)
       Nothing -> Nothing
 
 instance applicativeServer :: Applicative Server where
-  pure a = Server \_ _ r -> Just (Right (Tuple r a))
+  pure a = Server \_ _ r -> Just (Tuple r a)
 
 instance endpointServer :: Endpoint Server where
   method m   = Server \_ _ r -> if m == r.method
-                                  then Just (Right (Tuple r unit))
+                                  then Just (Tuple r unit)
                                   else Nothing
   lit s      = Server \_ _ r -> case r.route of
-                                  L.Cons hd tl | s == hd -> Just (Right (Tuple (r { route = tl }) unit))
+                                  L.Cons hd tl | s == hd -> Just (Tuple (r { route = tl }) unit)
                                   _ -> Nothing
   match _ _  = Server \_ _ r -> case r.route of
-                                  L.Cons hd tl -> Just (Right (Tuple (r { route = tl }) hd))
+                                  L.Cons hd tl -> Just (Tuple (r { route = tl }) hd)
                                   _ -> Nothing
-  query q _  = Server \_ _ r -> map (Right <<< Tuple r) (S.lookup q r.query)
-  header h _ = Server \_ _ r -> map (Right <<< Tuple r) (S.lookup (Data.String.toLower h) r.headers)
-  request    = Server \req _ r -> Just $ Right (Tuple r req)
-  response   = Server \_ res r -> Just $ Right (Tuple r res)
+  query q _  = Server \_ _ r -> map (Tuple r) (S.lookup q r.query)
+  header h _ = Server \_ _ r -> map (Tuple r) (S.lookup (Data.String.toLower h) r.headers)
+  request    = Server \req _ r -> Just $ Tuple r req
+  response   = Server \_ res r -> Just $ Tuple r res
   jsonRequest = Server \req res r ->
     let receive respond = do
           let requestStream = Node.requestAsStream req
@@ -109,14 +108,14 @@ instance endpointServer :: Endpoint Server where
             case readJSON body of
               Right a -> respond (Right a)
               Left _ -> respond (Left (ServiceError 400 "Bad request"))
-    in Just (Right (Tuple r receive))
+    in Just (Tuple r receive)
   jsonResponse = Server \req res r ->
     let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
-    in Just (Right (Tuple r respond))
+    in Just (Tuple r respond)
   optional (Server s) = Server \req res r ->
                           case s req res r of
-                            Nothing -> Just (Right (Tuple r Nothing))
-                            Just e -> Just (map (map Just) e)
+                            Nothing -> Just (Tuple r Nothing)
+                            Just e -> Just (map Just e)
   comments _ = pure unit
 
 -- | Serve a set of endpoints on the specified port.
@@ -146,8 +145,8 @@ serve endpoints port callback = do
     try preq (L.Cons (Server s) rest) =
       case s req res preq of
         Nothing -> try preq rest
-        Just (Left (ServiceError code msg)) -> sendResponse res code "text/plain" msg
-        Just (Right impl) ->
+        --Just (Left (ServiceError code msg)) -> sendResponse res code "text/plain" msg
+        Just impl ->
           case ensureEOL impl of
             Nothing -> try preq rest
             Just impl -> impl
