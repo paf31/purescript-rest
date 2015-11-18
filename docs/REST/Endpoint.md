@@ -38,7 +38,7 @@ foreign values.
 
 ##### Instances
 ``` purescript
-instance arrayAsForeign :: (AsForeign a) => AsForeign (Array a)
+(AsForeign a) => AsForeign (Array a)
 ```
 
 #### `Example`

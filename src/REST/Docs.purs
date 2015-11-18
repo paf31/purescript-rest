@@ -99,7 +99,7 @@ instance monoidDocument :: Monoid Document where
 -- | Render a `Document` as a HTML string.
 -- |
 -- | The base URL for the running service should be provided in the first argument.
-documentToMarkup :: forall eff any. String -> Docs eff any -> Markup
+documentToMarkup :: forall any. String -> Docs any -> Markup
 documentToMarkup baseURL (Docs (Document d) _) = do
   H.h1 $ text title
   for_ d.comments (H.p <<< text)
@@ -263,18 +263,18 @@ generateTOC docs = do
 -- |
 -- | The `Endpoint` instance for `Docs` can be used to generate documentation
 -- | for a specification, using `generateDocs`, or `serveDocs`.
-data Docs eff a = Docs Document (Server eff Unit)
+data Docs a = Docs Document (Server Unit)
 
-instance functorDocs :: Functor (Docs eff) where
+instance functorDocs :: Functor Docs where
   map _ (Docs d s) = Docs d s
 
-instance applyDocs :: Apply (Docs eff) where
+instance applyDocs :: Apply Docs where
   apply (Docs d1 s1) (Docs d2 s2) = Docs (d1 <> d2) (s1 *> s2)
 
-instance applicativeDocs :: Applicative (Docs eff) where
+instance applicativeDocs :: Applicative Docs where
   pure _ = Docs mempty (pure unit)
 
-instance endpointDocs :: Endpoint (Docs eff) where
+instance endpointDocs :: Endpoint Docs where
   method m            = Docs (Document (emptyDoc { method = Just m }))
                              (pure unit)
   lit s               = Docs (Document (emptyDoc { route = L.singleton (LiteralPart s) }))
@@ -293,29 +293,29 @@ instance endpointDocs :: Endpoint (Docs eff) where
   comments s          = Docs (Document (emptyDoc { comments = Just s }))
                              (pure unit)
 
-requestDocs :: forall eff eff1 req. (HasExample req) => Docs eff (Source eff1 (Either ServiceError req))
+requestDocs :: forall eff req. (HasExample req) => Docs (Source eff (Either ServiceError req))
 requestDocs = Docs (Document (emptyDoc { request = Just (asForeign (example :: req)) })) (pure unit)
 
-responseDocs :: forall eff eff1 res. (HasExample res) => Docs eff (Sink eff1 res)
+responseDocs :: forall eff res. (HasExample res) => Docs (Sink eff res)
 responseDocs = Docs (Document (emptyDoc { response = Just (asForeign (example :: res)) })) (pure unit)
 
 -- | Generate documentation for an `Endpoint` specification.
-generateDocs :: forall eff a. Docs eff a -> Document
+generateDocs :: forall a. Docs a -> Document
 generateDocs (Docs d _) = d
 
 -- | Serve documentation for a set of `Endpoint` specifications on the specified port.
 serveDocs :: forall f eff any.
   (Functor f, Foldable f) =>
   String ->
-  f (Docs eff any) ->
+  f (Docs any) ->
   (Markup -> Markup) ->
   Int ->
   Eff (http :: Node.HTTP | eff) Unit ->
   Eff (http :: Node.HTTP | eff) Unit
 serveDocs baseURL endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
   where
-  toServer :: Docs eff any -> Server eff (Eff (http :: Node.HTTP | eff) Unit)
+  toServer :: Docs any -> Server (Eff (http :: Node.HTTP | eff) Unit)
   toServer s@(Docs (Document d) server) = staticHtmlResponse (lit "endpoint" *> lit (fromMaybe "GET" d.method) *> server $> wrap (documentToMarkup baseURL s))
 
-  tocEndpoint :: Server eff (Eff (http :: Node.HTTP | eff) Unit)
+  tocEndpoint :: Server (Eff (http :: Node.HTTP | eff) Unit)
   tocEndpoint = staticHtmlResponse (get $> wrap (generateTOC (map generateDocs (L.toList endpoints))))

@@ -16,8 +16,8 @@ A `Document` can be generated from an `Endpoint` specification using `generateDo
 
 ##### Instances
 ``` purescript
-instance semigroupDocument :: Semigroup Document
-instance monoidDocument :: Monoid Document
+Semigroup Document
+Monoid Document
 ```
 
 #### `RoutePart`
@@ -42,7 +42,7 @@ An `Arg` represents an argument matched by a query argument or header.
 #### `documentToMarkup`
 
 ``` purescript
-documentToMarkup :: forall eff any. String -> Docs eff any -> Markup
+documentToMarkup :: forall any. String -> Docs any -> Markup
 ```
 
 Render a `Document` as a HTML string.
@@ -52,7 +52,7 @@ The base URL for the running service should be provided in the first argument.
 #### `Docs`
 
 ``` purescript
-data Docs eff a
+data Docs a
 ```
 
 Documentation for a REST service.
@@ -62,16 +62,16 @@ for a specification, using `generateDocs`, or `serveDocs`.
 
 ##### Instances
 ``` purescript
-instance functorDocs :: Functor (Docs eff)
-instance applyDocs :: Apply (Docs eff)
-instance applicativeDocs :: Applicative (Docs eff)
-instance endpointDocs :: Endpoint (Docs eff)
+Functor Docs
+Apply Docs
+Applicative Docs
+Endpoint Docs
 ```
 
 #### `generateDocs`
 
 ``` purescript
-generateDocs :: forall eff a. Docs eff a -> Document
+generateDocs :: forall a. Docs a -> Document
 ```
 
 Generate documentation for an `Endpoint` specification.
@@ -79,7 +79,7 @@ Generate documentation for an `Endpoint` specification.
 #### `serveDocs`
 
 ``` purescript
-serveDocs :: forall f eff any. (Functor f, Foldable f) => String -> f (Docs eff any) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
+serveDocs :: forall f eff any. (Functor f, Foldable f) => String -> f (Docs any) -> (Markup -> Markup) -> Int -> Eff (http :: HTTP | eff) Unit -> Eff (http :: HTTP | eff) Unit
 ```
 
 Serve documentation for a set of `Endpoint` specifications on the specified port.

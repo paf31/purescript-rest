@@ -66,37 +66,36 @@ parseQueryObject = map readStrings <<< queryAsStrMap
 -- |
 -- | The `Endpoint` instance for `Service` can be used to connect a specification to
 -- | a server implementation, with `serve`.
-data Server eff a = Server (Node.Request -> Node.Response -> ParsedRequest -> (Maybe (Either ServiceError (Tuple ParsedRequest a)) -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit)
+data Server a = Server (Node.Request -> Node.Response -> ParsedRequest -> Maybe (Either ServiceError (Tuple ParsedRequest a)))
 
-instance functorServer :: Functor (Server eff) where
-  map f (Server s) = Server \req res r k -> s req res r (k <<< map (map (map f)))
+instance functorServer :: Functor Server where
+  map f (Server s) = Server \req res r -> map (map (map f)) (s req res r)
 
-instance applyServer :: Apply (Server eff) where
-  apply (Server f) (Server a) = Server \req res r0 k ->
-    f req res r0 \mt ->
-      case mt of
-        Just (Left err) -> k (Just (Left err))
-        Just (Right (Tuple r1 f')) -> a req res r1 (k <<< map (map (map f')))
-        Nothing -> k Nothing
+instance applyServer :: Apply Server where
+  apply (Server f) (Server a) = Server \req res r0 ->
+    case f req res r0 of
+      Just (Left err) -> Just (Left err)
+      Just (Right (Tuple r1 f')) -> map (map (map f')) (a req res r1)
+      Nothing -> Nothing
 
-instance applicativeServer :: Applicative (Server eff) where
-  pure a = Server \_ _ r k -> k (Just (Right (Tuple r a)))
+instance applicativeServer :: Applicative Server where
+  pure a = Server \_ _ r -> Just (Right (Tuple r a))
 
-instance endpointServer :: Endpoint (Server eff) where
-  method m   = Server \_ _ r k -> k if m == r.method
-                                      then Just (Right (Tuple r unit))
-                                      else Nothing
-  lit s      = Server \_ _ r k -> k case r.route of
-                                      L.Cons hd tl | s == hd -> Just (Right (Tuple (r { route = tl }) unit))
-                                      _ -> Nothing
-  match _ _  = Server \_ _ r k -> k case r.route of
-                                      L.Cons hd tl -> Just (Right (Tuple (r { route = tl }) hd))
-                                      _ -> Nothing
-  query q _  = Server \_ _ r k -> k $ map (Right <<< Tuple r) (S.lookup q r.query)
-  header h _ = Server \_ _ r k -> k $ map (Right <<< Tuple r) (S.lookup (Data.String.toLower h) r.headers)
-  request    = Server \req _ r k -> k $ Just $ Right (Tuple r req)
-  response   = Server \_ res r k -> k $ Just $ Right (Tuple r res)
-  jsonRequest = Server \req res r k -> do
+instance endpointServer :: Endpoint Server where
+  method m   = Server \_ _ r -> if m == r.method
+                                  then Just (Right (Tuple r unit))
+                                  else Nothing
+  lit s      = Server \_ _ r -> case r.route of
+                                  L.Cons hd tl | s == hd -> Just (Right (Tuple (r { route = tl }) unit))
+                                  _ -> Nothing
+  match _ _  = Server \_ _ r -> case r.route of
+                                  L.Cons hd tl -> Just (Right (Tuple (r { route = tl }) hd))
+                                  _ -> Nothing
+  query q _  = Server \_ _ r -> map (Right <<< Tuple r) (S.lookup q r.query)
+  header h _ = Server \_ _ r -> map (Right <<< Tuple r) (S.lookup (Data.String.toLower h) r.headers)
+  request    = Server \req _ r -> Just $ Right (Tuple r req)
+  response   = Server \_ res r -> Just $ Right (Tuple r res)
+  jsonRequest = Server \req res r ->
     let receive respond = do
           let requestStream = Node.requestAsStream req
           Node.setEncoding requestStream Node.UTF8
@@ -110,20 +109,20 @@ instance endpointServer :: Endpoint (Server eff) where
             case readJSON body of
               Right a -> respond (Right a)
               Left _ -> respond (Left (ServiceError 400 "Bad request"))
-    k (Just (Right (Tuple r receive)))
-  jsonResponse = Server \req res r k -> do
+    in Just (Right (Tuple r receive))
+  jsonResponse = Server \req res r ->
     let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
-    k (Just (Right (Tuple r respond)))
-  optional (Server s) = Server \req res r k -> s req res r \mt ->
-                          case mt of
-                            Nothing -> k (Just (Right (Tuple r Nothing)))
-                            Just e -> k (Just (map (map Just) e))
+    in Just (Right (Tuple r respond))
+  optional (Server s) = Server \req res r ->
+                          case s req res r of
+                            Nothing -> Just (Right (Tuple r Nothing))
+                            Just e -> Just (map (map Just) e)
   comments _ = pure unit
 
 -- | Serve a set of endpoints on the specified port.
 serve :: forall f eff.
   (Foldable f) =>
-  f (Server eff (Eff (http :: Node.HTTP | eff) Unit)) ->
+  f (Server (Eff (http :: Node.HTTP | eff) Unit)) ->
   Int ->
   Eff (http :: Node.HTTP | eff) Unit ->
   Eff (http :: Node.HTTP | eff) Unit
@@ -141,15 +140,14 @@ serve endpoints port callback = do
 
     -- Try each endpoint in order
     try :: ParsedRequest ->
-           L.List (Server eff (Eff (http :: Node.HTTP | eff) Unit)) ->
+           L.List (Server (Eff (http :: Node.HTTP | eff) Unit)) ->
            Eff (http :: Node.HTTP | eff) Unit
     try _ L.Nil = sendResponse res 404 "text/plain" "No matching endpoint"
-    try preq (L.Cons (Server s) rest) = do
-      s req res preq \mres ->
-        case mres of
-          Nothing -> try preq rest
-          Just (Left (ServiceError code msg)) -> sendResponse res code "text/plain" msg
-          Just (Right impl) ->
-            case ensureEOL impl of
-              Nothing -> try preq rest
-              Just impl -> impl
+    try preq (L.Cons (Server s) rest) =
+      case s req res preq of
+        Nothing -> try preq rest
+        Just (Left (ServiceError code msg)) -> sendResponse res code "text/plain" msg
+        Just (Right impl) ->
+          case ensureEOL impl of
+            Nothing -> try preq rest
+            Just impl -> impl

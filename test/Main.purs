@@ -57,7 +57,7 @@ echo = worker <$> (docs *> post *> lit "echo" *> optional shoutHeader) <*> jsonR
   docs :: e Unit
   docs = comments "Echos the request body in the response body."
 
-  shoutHeader :: forall e. (Endpoint e) => e String
+  shoutHeader :: (Endpoint e) => e String
   shoutHeader = header "X-Shout" "This header should be non-empty if the result should be capitalized."
 
 endpoints :: forall e eff. (Endpoint e) => Array (e (Eff (http :: Node.HTTP | eff) Unit))
