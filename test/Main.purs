@@ -2,24 +2,24 @@ module Test.Main where
 
 import Prelude
 
-import Data.Maybe
-import Data.Either
-import Data.Foreign
-import Data.Foreign.Class
+import Data.Maybe (Maybe(..))
+import Data.Either (Either(..))
+import Data.Foreign (toForeign)
+import Data.Foreign.Class (class IsForeign, readProp)
 import Data.String (toUpper)
 
-import Control.Apply
-import Control.Monad.Eff
-import Control.Monad.Eff.Console
+import Control.Apply ()
+import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Console (CONSOLE, log)
 
-import qualified Node.HTTP        as Node
+import Node.HTTP        as Node
 
-import REST.Endpoint
-import REST.Server
-import REST.Docs
+import REST.Endpoint (comments, header, post, lit, response, get, Sink, ServiceError(..), class Endpoint, class AsForeign, class HasExample, sendResponse, Source)
+import REST.Server (serve)
+import REST.Docs (serveDocs)
 
-import qualified Text.Smolder.HTML                as H
-import qualified Text.Smolder.HTML.Attributes     as A
+import Text.Smolder.HTML                as H
+import Text.Smolder.HTML.Attributes     as A
 import Text.Smolder.Markup (Markup(), (!), text)
 
 data Echo = Echo String
@@ -41,18 +41,18 @@ home = worker <$> (get *> response)
   where
   worker res = sendResponse res 200 "text/plain" "Hello, world!"
 
-echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
-echo = worker <$> (docs *> post *> lit "echo" *> shoutHeader) <*> jsonRequest <*> jsonResponse <*> response
-  where
-  worker :: String -> Source eff (Either ServiceError Echo) -> Sink eff Echo -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
-  worker shout source sink res = do
-    source \e ->
-      case e of
-        Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
-        Right (Echo s) -> sink <<< Echo $
-          case shout of
-            "yes" -> toUpper s
-            _ -> s
+-- echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
+-- echo = worker <$> (docs *> post *> lit "echo" *> shoutHeader) <*> response
+--   where
+--   worker :: String -> Source eff (Either ServiceError Echo) -> Sink eff Echo -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
+--   worker shout source sink res = do
+--     source \e ->
+--       case e of
+--         Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
+--         Right (Echo s) -> sink <<< Echo $
+--           case shout of
+--             "yes" -> toUpper s
+--             _ -> s
 
   docs :: e Unit
   docs = comments "Echos the request body in the response body."
@@ -61,9 +61,9 @@ echo = worker <$> (docs *> post *> lit "echo" *> shoutHeader) <*> jsonRequest <*
   shoutHeader = header "X-Shout" "This header should be non-empty if the result should be capitalized."
 
 endpoints :: forall e eff. (Endpoint e) => Array (e (Eff (http :: Node.HTTP | eff) Unit))
-endpoints = [ home, echo ]
+endpoints = [ home ]
 
-template :: Markup -> Markup
+template :: forall a. Markup a -> Markup a
 template body = do
   H.html ! A.lang "en" $ do
     H.head $ do

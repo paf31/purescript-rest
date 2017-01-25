@@ -5,36 +5,36 @@ module REST.Server
   , serve
   ) where
 
-import Prelude
-
-import Data.Maybe
-import Data.Tuple
-import Data.Either (Either(..), either)
-import Data.Monoid
-import Data.Nullable (toMaybe)
-import Data.String (split, null)
-import Data.Foreign (Foreign(), readString, readArray)
-import Data.Foreign.Class (IsForeign, readJSON)
-import Data.Foldable (Foldable)
-import Data.Traversable (traverse)
-
+import Prelude (($), class Functor, class Apply, (<<<), const, map, class Applicative, not, id, apply, (==), (>>=), (<$>), unit, Unit, (<>), show, bind, pure, void)
+import Data.Maybe (fromMaybe, Maybe(..))
+import Data.Tuple ()
+import Data.Monoid ()
+import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Ref (newRef, modifyRef, readRef)
+import REST.Endpoint (ServiceError(..), class Endpoint, sendResponse, response, asForeign)
+import REST.JSON (prettyJSON)
+import Data.List as L
+import Data.StrMap as S
+import Node.Encoding as Node
+import Node.HTTP as Node
+import Node.Stream as Node
+import Node.URL as Node
 import Control.Alt ((<|>))
-import Control.Monad.Eff
-import Control.Monad.Eff.Ref
 import Control.Monad.Eff.Ref.Unsafe (unsafeRunRef)
-
-import REST.Endpoint
-import REST.JSON
-
+import Control.Monad.Except (runExcept, catchError)
+import Control.Monad.Except.Trans (runExceptT, catchError)
+import Data.Array (fromFoldable)
+import Data.Either (Either(..), either)
+import Data.Foldable (class Foldable)
+import Data.Foreign (Foreign, readString, readArray)
+import Data.Foreign.Class (class IsForeign, readJSON)
+import Data.Nullable (toMaybe)
+import Data.String (split, null, toLower, Pattern(..))
+import Data.Traversable (traverse)
+import Node.Encoding (Encoding(..))
 import Unsafe.Coerce (unsafeCoerce)
-
-import qualified Node.URL       as Node
-import qualified Node.HTTP      as Node
-import qualified Node.Stream    as Node
-import qualified Node.Encoding  as Node
-
-import qualified Data.StrMap  as S
-import qualified Data.List    as L
+--import Data.List.NonEmpty (fromFoldable)    as L
+-- import Data.List.Lazy.Types (toList) as L
 
 type ParsedRequest =
   { route       :: L.List String
@@ -47,7 +47,7 @@ parseRequest :: Node.Request -> ParsedRequest
 parseRequest req =
   let url   = Node.parse (Node.requestURL req)
       query = Node.parseQueryString (fromMaybe "" (toMaybe url.query))
-  in { route:   L.filter (not <<< null) $ L.toList $ split "/" $ fromMaybe "" $ toMaybe url.pathname
+  in { route:   L.filter (not <<< null) $ L.fromFoldable $ split (Pattern "/") $ fromMaybe "" $ toMaybe url.pathname
      , query:   parseQueryObject query
      , method:  Node.requestMethod req
      , headers: Node.requestHeaders req
@@ -60,7 +60,25 @@ parseQueryObject = map readStrings <<< queryAsStrMap
   queryAsStrMap = unsafeCoerce
 
   readStrings :: Foreign -> L.List String
-  readStrings f = either (const L.Nil) id $ map L.toList (readArray f >>= traverse readString) <|> (L.singleton <$> readString f)
+  readStrings f = either (const L.Nil) id $ runExcept ((map L.fromFoldable (readArray f >>= traverse readString)) <|> (L.singleton <$> readString f))
+
+  -- do
+  --   let a = (map L.fromFoldable (readArray f >>= traverse readString) <|> (L.singleton <$> readString f))
+  --   b <- (runExceptT a)
+  --   pure b
+    -- (either (const L.Nil) id) b
+
+    --do
+    -- a <- (map L.fromFoldable (readArray f >>= traverse readString) <|> (L.singleton <$> readString f))
+    -- case a of
+    --   (Left _) -> L.Nil
+    --   (Right b) -> b
+
+    --b <- runExceptT a
+    --b
+    --runExceptT a
+    -- either (const L.Nil) id $ runExceptT a
+    -- either (const L.Nil) id $ runExceptT $ (map L.fromFoldable (readArray f >>= traverse readString) <|> (L.singleton <$> readString f))
 
 -- | The result of parsing a request
 data ServerResult a = ServerResult ParsedRequest (Either ServiceError a)
@@ -97,29 +115,50 @@ instance endpointServer :: Endpoint Server where
   query q _  = Server \_ _ r -> case S.lookup q r.query of
                                   Nothing -> Just (ServerResult r (Left (ServiceError 400 ("Missing required query parameter " <> show q))))
                                   Just a -> Just (ServerResult r (Right a))
-  header h _ = Server \_ _ r -> case S.lookup (Data.String.toLower h) r.headers of
+  header h _ = Server \_ _ r -> case S.lookup (toLower h) r.headers of
                                   Nothing -> Just (ServerResult r (Left (ServiceError 400 ("Missing required header " <> show h))))
                                   Just a -> Just (ServerResult r (Right a))
   request    = Server \req _ r -> Just (ServerResult r (Right req))
   response   = Server \_ res r -> Just (ServerResult r (Right res))
-  jsonRequest = Server \req res r ->
-    let receive respond = do
-          let requestStream = Node.requestAsStream req
-          Node.setEncoding requestStream Node.UTF8
-          bodyRef <- unsafeRunRef $ newRef ""
-          Node.onData requestStream \s -> do
-            unsafeRunRef $ modifyRef bodyRef (<> s)
-          Node.onError requestStream do
-            respond (Left (ServiceError 500 "Internal server error"))
-          Node.onEnd requestStream do
-            body <- unsafeRunRef $ readRef bodyRef
-            case readJSON body of
-              Right a -> respond (Right a)
-              Left _ -> respond (Left (ServiceError 400 "Bad request"))
-    in Just (ServerResult r (Right receive))
-  jsonResponse = Server \req res r ->
-    let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
-    in Just (ServerResult r (Right respond))
+  -- jsonRequest =
+  --   Server \req res r ->
+  --     let receive respond = do
+  --             let requestStream = Node.requestAsStream req
+  --             Node.setEncoding requestStream Node.UTF8
+  --             bodyRef <- unsafeRunRef $ newRef ""
+  --             Node.onDataString requestStream UTF8 \s -> do
+  --               unsafeRunRef $ modifyRef bodyRef ((<>) s)
+  --             Node.onError requestStream do
+  --               respond (Left (ServiceError 500 "Internal server error"))
+  --             Node.onEnd requestStream do
+  --               body <- unsafeRunRef $ readRef bodyRef
+  --               case (runExcept $ readJSON body) of
+  --                 Right a -> respond (Right a)
+  --                 Left _ -> respond (Left (ServiceError 400 "Bad request"))
+  --               pure unit
+  --     in Just (ServerResult r (Right receive))
+
+
+
+    -- let receive respond = do
+    --       let requestStream = Node.requestAsStream req
+    --       Node.setEncoding requestStream Node.UTF8
+    --       bodyRef <- unsafeRunRef $ newRef ""
+    --       Node.onDataString requestStream UTF8 \s -> do
+    --         unsafeRunRef $ modifyRef bodyRef ((<>) s)
+    --       Node.onError requestStream do
+    --         respond (Left (ServiceError 500 "Internal server error"))
+    --       Node.onEnd requestStream do
+    --         body <- unsafeRunRef $ readRef bodyRef
+    --         case (runExcept (readJSON body)) of
+    --           Right a -> respond (Right a)
+    --           Left _ ->  respond (Left (ServiceError 400 "Bad request"))
+    --
+    --
+    -- in Just (ServerResult r (Right receive))
+  -- jsonResponse = Server \req res r ->
+  --   let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
+  --   in Just (ServerResult r (Right respond))
   optional (Server s) = Server \req res r -> Just $
                           case s req res r of
                             Just (ServerResult r1 (Right a)) -> ServerResult r1 (Right (Just a))
@@ -136,12 +175,12 @@ serve :: forall f eff.
   Eff (http :: Node.HTTP | eff) Unit
 serve endpoints port callback = do
   server <- Node.createServer respond
-  Node.listen server port callback
+  Node.listen server { hostname : "localhost", port : port, backlog : Nothing } callback
   where
   respond :: Node.Request -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
   respond req res = do
     let pr = parseRequest req
-    case firstSuccess (L.mapMaybe (\(Server f) -> f req res pr >>= ensureEOL) (L.toList endpoints)) of
+    case firstSuccess (L.mapMaybe (\(Server f) -> f req res pr >>= ensureEOL) (L.fromFoldable endpoints)) of
       Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
       Right impl -> impl
 
