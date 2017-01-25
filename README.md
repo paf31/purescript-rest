@@ -27,4 +27,5 @@ Using a type class allows us to interpret our routes in different ways:
 - As an actual web service
 - As documentation, including an automatically-generated _API tester_.
 
-See the [test project](test/Main.purs) for a worked example.
+See the [test project](test/Main.purs) for a worked example.  You can run the test
+server by running `pulp test` in project root.
