@@ -11,32 +11,32 @@ module REST.Docs
   , serveDocs
   ) where
 
-import Prelude
+import Prelude (class Semigroup, (<<<), ($), Unit, (<>), class Applicative, pure, bind, unit, compare, not)
 
-import Data.Maybe
-import Data.Tuple
-import Data.Either
-import Data.Monoid
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Tuple (Tuple(..), fst)
+import Data.Either (Either(..))
+import Data.Monoid (class Monoid, mempty)
 import Data.Functor (($>))
 import Data.Function (on)
-import Data.Foldable (Foldable, foldMap, for_, intercalate)
+import Data.Foldable (class Foldable, foldMap, for_, intercalate)
 
-import qualified Data.List as L
+import Data.List as L
 
-import REST.Endpoint
-import REST.Server
-import REST.JSON
+import REST.Endpoint (Comments, Source, Sink, Example, class Endpoint, ServiceError, class HasExample, staticHtmlResponse, asForeign, lit, example, get)
+import REST.Server (Server, serve)
+import REST.JSON (prettyJSON)
 
-import qualified Node.HTTP        as Node
-import qualified Node.URL         as Node
+import Node.HTTP        as Node
+import Node.URL         as Node
 
 import Control.Alt ((<|>))
 import Control.Apply
 import Control.Monad (when)
 import Control.Monad.Eff
 
-import qualified Text.Smolder.HTML                as H
-import qualified Text.Smolder.HTML.Attributes     as A
+import Text.Smolder.HTML                as H
+import Text.Smolder.HTML.Attributes     as A
 import Text.Smolder.Markup (Markup(), text, (!))
 
 -- | The documentation data structure.
@@ -99,7 +99,7 @@ instance monoidDocument :: Monoid Document where
 -- | Render a `Document` as a HTML string.
 -- |
 -- | The base URL for the running service should be provided in the first argument.
-documentToMarkup :: forall any. String -> Docs any -> Markup
+documentToMarkup :: forall a any. String -> Docs any -> Markup a
 documentToMarkup baseURL (Docs (Document d) _) = do
   H.h1 $ text title
   for_ d.comments (H.p <<< text)
@@ -139,11 +139,11 @@ documentToMarkup baseURL (Docs (Document d) _) = do
   routePartToArg (MatchPart arg) = Just arg
   routePartToArg _ = Nothing
 
-  bulletedList :: forall a. L.List a -> (a -> Markup) -> Markup
+  bulletedList :: forall a b. L.List a -> (a -> Markup b) -> Markup b
   bulletedList xs f = H.ul (for_ xs (H.li <<< f))
 
   title :: String
-  title = maybe "" (<> " ") d.method <> route
+  title = maybe "" ((<>) " ") d.method <> route
 
   route :: String
   route = "/" <> intercalate "/" (map fromRoutePart d.route)
@@ -151,12 +151,12 @@ documentToMarkup baseURL (Docs (Document d) _) = do
     fromRoutePart (LiteralPart s) = s
     fromRoutePart (MatchPart (Arg a)) = ":" <> a.key
 
-  renderArg :: Arg -> Markup
+  renderArg :: forall a. Arg -> Markup a
   renderArg (Arg a) = do
     H.code $ text a.key
     text $ " - " <> a.comments
 
-  textBox :: String -> Arg -> Markup
+  textBox :: forall a. String -> Arg -> Markup a
   textBox pfx (Arg a) = do
     H.div ! A.className "form-group" $ do
       H.label $ text a.key
@@ -164,10 +164,10 @@ documentToMarkup baseURL (Docs (Document d) _) = do
 
   cURLCommand :: String
   cURLCommand = intercalate "\\\n    " $ map (intercalate " ") $
-    [ [ ">", "curl" ] ++ foldMap (\m -> [ "-X", m ]) d.method ] ++
-    foldMap (\(Arg a) -> [ [ "-H", "'" ++ a.key ++ ": {" ++ a.key ++ "}'" ] ]) d.headers ++
-    cURLRequestBody ++
-    cURLResponseBody ++
+    [ [ ">", "curl" ] <> foldMap (\m -> [ "-X", m ]) d.method ] <>
+    foldMap (\(Arg a) -> [ [ "-H", "'" <> a.key <> ": {" <> a.key <> "}'" ] ]) d.headers <>
+    cURLRequestBody <>
+    cURLResponseBody <>
     [ [ url ] ]
     where
     cURLRequestBody :: Array (Array String)
@@ -192,7 +192,7 @@ documentToMarkup baseURL (Docs (Document d) _) = do
       renderQuery qs = "?" <> intercalate "\&" (map (\(Arg a) -> a.key <> "={" <> a.key <> "}") qs)
 
   javascriptContent :: String
-  javascriptContent = foldMap (<> "\n") $
+  javascriptContent = foldMap ((<>) "\n") $
     [ "var tester = document.getElementById('tester');"
     , "tester.onsubmit = function() {"
     , "  var xhr = new XMLHttpRequest();"
@@ -206,8 +206,8 @@ documentToMarkup baseURL (Docs (Document d) _) = do
         queryPart <>
         ";"
     , "  xhr.open(tester.method, uri, true);"
-    ] ++
-    foldMap (\(Arg a) -> [ "  xhr.setRequestHeader('" <> a.key <> "', getFormValue('header', '" <> a.key <> "'));" ]) d.headers ++
+    ] <>
+    foldMap (\(Arg a) -> [ "  xhr.setRequestHeader('" <> a.key <> "', getFormValue('header', '" <> a.key <> "'));" ]) d.headers <>
     [ "  xhr.onreadystatechange = function() {"
     , "    if (xhr.readyState == 4) {"
     , "      document.getElementById('tester-response').innerText = xhr.responseText;"
@@ -235,7 +235,7 @@ documentToMarkup baseURL (Docs (Document d) _) = do
     fromQueryArg :: Arg -> String
     fromQueryArg (Arg a) = "'" <> a.key <> "=' + " <> "getFormValue('query', '" <> a.key <> "')"
 
-generateTOC :: L.List Document -> Markup
+generateTOC :: forall a. L.List Document -> Markup a
 generateTOC docs = do
   H.h1 $ text "API Documentation"
   H.ul $ foldMap toListItem $ L.sortBy (compare `on` fst) $ map toTuple docs
@@ -243,12 +243,12 @@ generateTOC docs = do
   toTuple :: Document -> Tuple String String
   toTuple (Document d) = Tuple (routeToText d.method d.route) (routeToHref d.method d.route)
 
-  toListItem :: Tuple String String -> Markup
+  toListItem :: forall a. Tuple String String -> Markup a
   toListItem (Tuple s href) =
     H.li $ H.a ! A.href href $ text s
 
   routeToHref :: Maybe String -> L.List RoutePart -> String
-  routeToHref method = Node.resolve "/" <<< (("/endpoint/" <> fromMaybe "GET" method) <>) <<< foldMap fromRoutePart
+  routeToHref method = Node.resolve "/" <<< ((<>) ("/endpoint/" <> (fromMaybe "GET" method))) <<< foldMap fromRoutePart
     where
     fromRoutePart (LiteralPart s) = "/" <> s
     fromRoutePart (MatchPart _) = "/_"
@@ -304,18 +304,18 @@ generateDocs :: forall a. Docs a -> Document
 generateDocs (Docs d _) = d
 
 -- | Serve documentation for a set of `Endpoint` specifications on the specified port.
-serveDocs :: forall f eff any.
+serveDocs :: forall f b eff any.
   (Functor f, Foldable f) =>
   String ->
   f (Docs any) ->
-  (Markup -> Markup) ->
+  (Markup b -> Markup b) ->
   Int ->
   Eff (http :: Node.HTTP | eff) Unit ->
   Eff (http :: Node.HTTP | eff) Unit
-serveDocs baseURL endpoints wrap = serve (L.Cons tocEndpoint (L.toList (map toServer endpoints)))
+serveDocs baseURL endpoints wrap = serve (L.Cons tocEndpoint (L.fromFoldable (map toServer endpoints)))
   where
   toServer :: Docs any -> Server (Eff (http :: Node.HTTP | eff) Unit)
   toServer s@(Docs (Document d) server) = staticHtmlResponse (lit "endpoint" *> lit (fromMaybe "GET" d.method) *> server $> wrap (documentToMarkup baseURL s))
 
   tocEndpoint :: Server (Eff (http :: Node.HTTP | eff) Unit)
-  tocEndpoint = staticHtmlResponse (get $> wrap (generateTOC (map generateDocs (L.toList endpoints))))
+  tocEndpoint = staticHtmlResponse (get $> wrap (generateTOC (map generateDocs (L.fromFoldable endpoints))))

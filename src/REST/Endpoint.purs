@@ -2,13 +2,13 @@
 -- | REST endpoints, independent of their implementation.
 
 module REST.Endpoint
-   ( AsForeign
+   ( class AsForeign
    , asForeign
    , Example()
-   , HasExample
+   , class HasExample
    , example
    , ServiceError(..)
-   , Endpoint
+   , class Endpoint
    , method
    , lit
    , match
@@ -33,20 +33,21 @@ module REST.Endpoint
    , sendResponse
    ) where
 
-import Prelude
+import Prelude ((<<<), class Applicative, Unit, map, apply, bind, pure, unit)
 
-import Data.Maybe
-import Data.Either
-import Data.Foreign
-import Data.Foreign.Class
+import Data.Maybe (Maybe(..))
+import Data.Either (Either(..))
+import Data.Foreign (Foreign, toForeign)
+import Data.Foreign.Class (class IsForeign)
 
-import Control.Monad.Eff
+import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Exception (EXCEPTION)
 
-import qualified Data.List as L
+import Data.List as L
 
-import qualified Node.Encoding  as Node
-import qualified Node.HTTP      as Node
-import qualified Node.Stream    as Node
+import Node.Encoding  as Node
+import Node.HTTP      as Node
+import Node.Stream    as Node
 
 import Text.Smolder.Markup (Markup())
 import Text.Smolder.Renderer.String (render)
@@ -83,7 +84,7 @@ class (AsForeign a) <= HasExample a where
 type Sink eff res = res -> Eff (http :: Node.HTTP | eff) Unit
 
 -- | A `Source` provides a request asynchronously.
-type Source eff req = (req -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit
+type Source eff req = (req -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP, err :: EXCEPTION | eff) Unit
 
 -- | A service error - status code and message.
 data ServiceError = ServiceError Int String
@@ -130,14 +131,14 @@ delete :: forall e. (Endpoint e) => e Unit
 delete = method "DELETE"
 
 -- | Create a `Service` which renders HTML content.
-htmlResponse :: forall e eff. (Endpoint e) => e (Sink eff Markup)
+htmlResponse :: forall e a eff. (Endpoint e) => e (Sink eff (Markup a))
 htmlResponse = map toClient response
   where
-  toClient :: Node.Response -> Sink eff Markup
+  toClient :: Node.Response -> Sink eff (Markup a)
   toClient res = sendResponse res 200 "text/html" <<< render
 
 -- | Serve static HTML in the response body.
-staticHtmlResponse :: forall e eff. (Endpoint e) => e Markup -> e (Eff (http :: Node.HTTP | eff) Unit)
+staticHtmlResponse :: forall e eff. (Endpoint e) => e (Markup _) -> e (Eff (http :: Node.HTTP | eff) Unit)
 staticHtmlResponse = apply htmlResponse
 
 -- | Send a basic response to the client, specifying a status code, status message and response body.
@@ -146,5 +147,5 @@ sendResponse res code contentType message = do
   Node.setStatusCode res code
   Node.setHeader res "Content-Type" contentType
   let responseStream = Node.responseAsStream res
-  Node.writeString responseStream Node.UTF8 message (return unit)
-  Node.end responseStream (return unit)
+  Node.writeString responseStream Node.UTF8 message (pure unit)
+  Node.end responseStream (pure unit)
