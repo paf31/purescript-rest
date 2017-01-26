@@ -107,19 +107,15 @@ instance endpointServer :: Endpoint Server where
   response   = Server \_ res r -> Just (ServerResult r (Right res))
 
   jsonRequest = Server \req res r ->
-    let receive respond = do
+    let receive _ = do
           let requestStream = Node.requestAsStream req
           Node.setEncoding requestStream Node.UTF8
           bodyRef <- unsafeRunRef $ newRef ""
           Node.onDataString requestStream UTF8 \s -> do
             unsafeRunRef $ modifyRef bodyRef ((<>) s)
-          Node.onError requestStream do
-            respond (Left (ServiceError 500 "Internal server error"))
-          Node.onEnd requestStream do
-            body <- unsafeRunRef $ readRef bodyRef
-            case (runExcept $ readJSON body) of
-              Right a -> respond (Right a)
-              Left _ -> respond (Left (ServiceError 400 "Bad request"))
+          Node.onError requestStream \ _ -> pure unit
+          Node.onEnd requestStream (pure unit)
+          pure unit
     in Just (ServerResult r (Right receive))
 
   jsonResponse = Server \req res r ->

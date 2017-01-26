@@ -41,6 +41,7 @@ import Data.Foreign (Foreign, toForeign)
 import Data.Foreign.Class (class IsForeign)
 
 import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Exception (EXCEPTION)
 
 import Data.List as L
 
@@ -83,7 +84,7 @@ class (AsForeign a) <= HasExample a where
 type Sink eff res = res -> Eff (http :: Node.HTTP | eff) Unit
 
 -- | A `Source` provides a request asynchronously.
-type Source eff req = (req -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP | eff) Unit
+type Source eff req = (req -> Eff (http :: Node.HTTP | eff) Unit) -> Eff (http :: Node.HTTP, err :: EXCEPTION | eff) Unit
 
 -- | A service error - status code and message.
 data ServiceError = ServiceError Int String
