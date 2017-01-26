@@ -62,24 +62,6 @@ parseQueryObject = map readStrings <<< queryAsStrMap
   readStrings :: Foreign -> L.List String
   readStrings f = either (const L.Nil) id $ runExcept ((map L.fromFoldable (readArray f >>= traverse readString)) <|> (L.singleton <$> readString f))
 
-  -- do
-  --   let a = (map L.fromFoldable (readArray f >>= traverse readString) <|> (L.singleton <$> readString f))
-  --   b <- (runExceptT a)
-  --   pure b
-    -- (either (const L.Nil) id) b
-
-    --do
-    -- a <- (map L.fromFoldable (readArray f >>= traverse readString) <|> (L.singleton <$> readString f))
-    -- case a of
-    --   (Left _) -> L.Nil
-    --   (Right b) -> b
-
-    --b <- runExceptT a
-    --b
-    --runExceptT a
-    -- either (const L.Nil) id $ runExceptT a
-    -- either (const L.Nil) id $ runExceptT $ (map L.fromFoldable (readArray f >>= traverse readString) <|> (L.singleton <$> readString f))
-
 -- | The result of parsing a request
 data ServerResult a = ServerResult ParsedRequest (Either ServiceError a)
 
@@ -104,6 +86,9 @@ instance applyServer :: Apply Server where
 instance applicativeServer :: Applicative Server where
   pure a = Server \_ _ r -> Just (ServerResult r (Right a))
 
+
+    --pure unit
+
 instance endpointServer :: Endpoint Server where
   method m   = Server \_ _ r -> Just (ServerResult r (if m == r.method then Right unit else Left (ServiceError 405 "Method not allowed")))
   lit s      = Server \_ _ r -> case r.route of
@@ -120,45 +105,26 @@ instance endpointServer :: Endpoint Server where
                                   Just a -> Just (ServerResult r (Right a))
   request    = Server \req _ r -> Just (ServerResult r (Right req))
   response   = Server \_ res r -> Just (ServerResult r (Right res))
-  -- jsonRequest =
-  --   Server \req res r ->
-  --     let receive respond = do
-  --             let requestStream = Node.requestAsStream req
-  --             Node.setEncoding requestStream Node.UTF8
-  --             bodyRef <- unsafeRunRef $ newRef ""
-  --             Node.onDataString requestStream UTF8 \s -> do
-  --               unsafeRunRef $ modifyRef bodyRef ((<>) s)
-  --             Node.onError requestStream do
-  --               respond (Left (ServiceError 500 "Internal server error"))
-  --             Node.onEnd requestStream do
-  --               body <- unsafeRunRef $ readRef bodyRef
-  --               case (runExcept $ readJSON body) of
-  --                 Right a -> respond (Right a)
-  --                 Left _ -> respond (Left (ServiceError 400 "Bad request"))
-  --               pure unit
-  --     in Just (ServerResult r (Right receive))
 
+  jsonRequest = Server \req res r ->
+    let receive respond = do
+          let requestStream = Node.requestAsStream req
+          Node.setEncoding requestStream Node.UTF8
+          bodyRef <- unsafeRunRef $ newRef ""
+          Node.onDataString requestStream UTF8 \s -> do
+            unsafeRunRef $ modifyRef bodyRef ((<>) s)
+          Node.onError requestStream do
+            respond (Left (ServiceError 500 "Internal server error"))
+          Node.onEnd requestStream do
+            body <- unsafeRunRef $ readRef bodyRef
+            case (runExcept $ readJSON body) of
+              Right a -> respond (Right a)
+              Left _ -> respond (Left (ServiceError 400 "Bad request"))
+    in Just (ServerResult r (Right receive))
 
-
-    -- let receive respond = do
-    --       let requestStream = Node.requestAsStream req
-    --       Node.setEncoding requestStream Node.UTF8
-    --       bodyRef <- unsafeRunRef $ newRef ""
-    --       Node.onDataString requestStream UTF8 \s -> do
-    --         unsafeRunRef $ modifyRef bodyRef ((<>) s)
-    --       Node.onError requestStream do
-    --         respond (Left (ServiceError 500 "Internal server error"))
-    --       Node.onEnd requestStream do
-    --         body <- unsafeRunRef $ readRef bodyRef
-    --         case (runExcept (readJSON body)) of
-    --           Right a -> respond (Right a)
-    --           Left _ ->  respond (Left (ServiceError 400 "Bad request"))
-    --
-    --
-    -- in Just (ServerResult r (Right receive))
-  -- jsonResponse = Server \req res r ->
-  --   let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
-  --   in Just (ServerResult r (Right respond))
+  jsonResponse = Server \req res r ->
+    let respond = sendResponse res 200 "application/json" <<< prettyJSON <<< asForeign
+    in Just (ServerResult r (Right respond))
   optional (Server s) = Server \req res r -> Just $
                           case s req res r of
                             Just (ServerResult r1 (Right a)) -> ServerResult r1 (Right (Just a))

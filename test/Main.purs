@@ -41,18 +41,18 @@ home = worker <$> (get *> response)
   where
   worker res = sendResponse res 200 "text/plain" "Hello, world!"
 
--- echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
--- echo = worker <$> (docs *> post *> lit "echo" *> shoutHeader) <*> response
---   where
---   worker :: String -> Source eff (Either ServiceError Echo) -> Sink eff Echo -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
---   worker shout source sink res = do
---     source \e ->
---       case e of
---         Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
---         Right (Echo s) -> sink <<< Echo $
---           case shout of
---             "yes" -> toUpper s
---             _ -> s
+echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
+echo = worker <$> (docs *> post *> lit "echo" *> shoutHeader) <*> jsonRequest <*> jsonResponse <*> response
+  where
+  worker :: String -> Source eff (Either ServiceError Echo) -> Sink eff Echo -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
+  worker shout source sink res = do
+    source \e ->
+      case e of
+        Left (ServiceError code msg) -> sendResponse res code "text/plain" msg
+        Right (Echo s) -> sink <<< Echo $
+          case shout of
+            "yes" -> toUpper s
+            _ -> s
 
   docs :: e Unit
   docs = comments "Echos the request body in the response body."

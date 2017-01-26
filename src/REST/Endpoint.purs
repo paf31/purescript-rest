@@ -16,8 +16,8 @@ module REST.Endpoint
    , header
    , request
    , response
-   --, jsonRequest
-   --, jsonResponse
+   , jsonRequest
+   , jsonResponse
    , optional
    , comments
    , Hint()
@@ -108,8 +108,8 @@ class (Applicative e) <= Endpoint e where
   header       :: String -> Comments -> e String
   request      :: e Node.Request
   response     :: e Node.Response
-  -- jsonRequest  :: forall req eff. (HasExample req) => e (Source eff (Either ServiceError req))
-  -- jsonResponse :: forall res eff. (HasExample res) => e (Sink eff res)
+  jsonRequest  :: forall req eff. (HasExample req) => e (Source eff (Either ServiceError req))
+  jsonResponse :: forall res eff. (HasExample res) => e (Sink eff res)
   optional     :: forall a. e a -> e (Maybe a)
   comments     :: String -> e Unit
 
