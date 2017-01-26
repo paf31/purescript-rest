@@ -10,11 +10,12 @@ import Data.String (toUpper)
 
 import Control.Apply ()
 import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Exception (EXCEPTION)
 import Control.Monad.Eff.Console (CONSOLE, log)
 
 import Node.HTTP        as Node
 
-import REST.Endpoint (comments, header, post, lit, response, get, Sink, ServiceError(..), class Endpoint, class AsForeign, class HasExample, sendResponse, Source)
+import REST.Endpoint (comments, header, post, lit, response, get, Sink, ServiceError(..), class Endpoint, class AsForeign, class HasExample, sendResponse, Source, jsonResponse, jsonRequest)
 import REST.Server (serve)
 import REST.Docs (serveDocs)
 
@@ -41,10 +42,10 @@ home = worker <$> (get *> response)
   where
   worker res = sendResponse res 200 "text/plain" "Hello, world!"
 
-echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP | eff) Unit)
+echo :: forall e eff. (Endpoint e) => e (Eff (http :: Node.HTTP, err :: EXCEPTION | eff) Unit)
 echo = worker <$> (docs *> post *> lit "echo" *> shoutHeader) <*> jsonRequest <*> jsonResponse <*> response
   where
-  worker :: String -> Source eff (Either ServiceError Echo) -> Sink eff Echo -> Node.Response -> Eff (http :: Node.HTTP | eff) Unit
+  worker :: String -> Source eff (Either ServiceError Echo) -> Sink eff Echo -> Node.Response -> Eff (http :: Node.HTTP, err :: EXCEPTION | eff) Unit
   worker shout source sink res = do
     source \e ->
       case e of

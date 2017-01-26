@@ -287,8 +287,8 @@ instance endpointDocs :: Endpoint Docs where
                              (pure unit)
   request             = Docs (Document emptyDoc) (pure unit)
   response            = Docs (Document emptyDoc) (pure unit)
-  --jsonRequest         = requestDocs
-  --jsonResponse        = responseDocs
+  jsonRequest         = requestDocs
+  jsonResponse        = responseDocs
   optional            = map Just
   comments s          = Docs (Document (emptyDoc { comments = Just s }))
                              (pure unit)
